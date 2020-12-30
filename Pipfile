@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 pypng = "*"
-numpy = "1.19.3"
+numpy = "==1.19.3"
 
 [dev-packages]
 

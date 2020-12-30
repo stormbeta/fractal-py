@@ -9,6 +9,7 @@ from multiprocessing import Process
 import math
 
 
+# TODO: Remove this and just use raw array access
 @dataclass
 class Pixel:
     r: int
@@ -23,7 +24,6 @@ class RWindow:
     xmax: float
     ymin: float
     ymax: float
-    pixel_max: Pixel
 
     # TODO: This allows non-1-to-1 mapping of aspect ratio between plane and resolution
     #       A) Auto-correct either x or y to match plane
@@ -35,8 +35,6 @@ class RWindow:
         self.ymin = plane[1]
         self.xmax = plane[2]
         self.ymax = plane[3]
-        # fudge_factor = 2
-        self.pixel_max = Pixel(255*1.4, 255*2.2, 255*3.2)
 
         self.dx = ((self.xmax - self.xmin) / self.xres)
         self.dy = ((self.ymax - self.ymin) / self.yres)
@@ -78,15 +76,6 @@ class RWindow:
             load.shape = (self.yres, 3*self.xres)
             self.data = load
 
-    def normalize(self):
-        for x in range(self.xres):
-            for y in range(self.yres):
-                pixel = self.get_pixel(x, y)
-                pixel.r = pixel.r * (255/self.pixel_max.r)
-                pixel.g = pixel.g * (255/self.pixel_max.g)
-                pixel.b = pixel.b * (255/self.pixel_max.b)
-                self.set_pixel(x, y, pixel)
-
     def iterator(self) -> Generator[int, int, Tuple[chr]]:
         for x in range(self.xres):
             for y in range(self.yres):
@@ -96,145 +85,170 @@ class RWindow:
 # TODO: Convert RWin to singleton for all values except data blob
 width = 1024
 height = 1024
-# plane = (-2.0, -1.5, 1.0, 1.5)
-plane = (-2.0, -2.0, 2.0, 2.0)
+plane = (-1.75, -1.25, 0.75, 1.25)
+# plane = (-2.0, -2.0, 2.0, 2.0)
 
 
 def render(dump: str, count: int):
     rwin = RWindow(width, height, plane)
     progress_increment = int(count/100)
+    # Define the plane we wish to render in 4D space
+    z_min = 0 + 0j
+    z_max = 0 + 0j
+    c_min = rwin.xmin + 1j*rwin.ymin
+    c_max = rwin.ymax + 1j*rwin.ymax
+
+    z_diff = z_max - z_min
+    c_diff = c_max - c_min
     for s in range(count):
+        # Only track process from one of the threads, as otherwise it just spams console output
         if(dump == 'render0.dat' and s % progress_increment == 0):
-            print(f"{dump}: {int(s/progress_increment)}%")
-        z = 0 + 0j
+            print(f"Progress: {int(s/progress_increment)}%")
+        # z = 0 + 0j
         points = []
         escapes = False
-        crand = numpy.random.random_sample(2)
-        rwin.xmax - rwin.xmin
-
-        c = ((rwin.xmax - rwin.xmin) * crand[0] + rwin.xmin) + 1j * ((rwin.ymax - rwin.ymin) * crand[1] + rwin.ymin)
-        for i in range(100):
+        # crand = numpy.random.random_sample(2)
+        rand0, rand1 = numpy.random.random_sample(2)
+        # TODO: This math is definitely wrong, as it was supposed to render the normal buddhabrot if the z/c min/max were set normally
+        #       Instead it renders some kind of abyssal horror
+        z = z_min.real + rand0 * z_diff.real + 1j*(z_min.imag+rand0*z_diff.imag)
+        c = c_min.real + rand1 * c_diff.real + 1j*(c_min.imag+rand1*c_diff.imag)
+        # c = ((rwin.xmax - rwin.xmin) * crand[0] + rwin.xmin) + 1j * ((rwin.ymax - rwin.ymin) * crand[1] + rwin.ymin)
+        for i in range(200):
             z = z * z + c
-            if z.real * z.real + z.imag * z.imag > 4:
+            if z.real * z.real + z.imag * z.imag > 3:
                 escapes = True
                 break
+            points.append((z.real, z.imag))
         if escapes:
             for p in points:
                 r, i = p
                 x, y = rwin.plane2xy(r, i)
-                if x < 0 or x > rwin.xres or y < 0 or y > rwin.yres:
+                if x < 0 or x >= rwin.xres or y < 0 or y >= rwin.yres:
                     continue
                 pixel = rwin.get_pixel(x, y)
                 pixel.r += 1
-                pixel.g += 2
-                pixel.b += 3
+                pixel.g += 1
+                pixel.b += 1
                 rwin.set_pixel(x, y, pixel)
     rwin.serialize(dump)
 
 
 if __name__ == '__main__':
-    pcount = multiprocessing.cpu_count()
+    workers = multiprocessing.cpu_count()
 
     # skip_render = True
     skip_render = False
     if not skip_render:
-        traces = pow(2, 21)
+        traces = pow(2, 23)
         processes = []
-        traces_per_process = int(traces / pcount)
+        traces_per_process = int(traces / workers)
         print(f"Traces per process: {traces_per_process}")
-        for i in range(pcount):
-            proc = Process(target=render, args=(f"render{i}.dat", int(traces / pcount)))
+        for i in range(workers):
+            proc = Process(target=render, args=(f"render{i}.dat", int(traces / workers)))
             processes.append(proc)
             proc.start()
         for proc in processes:
             proc.join()
 
-    # MERGE
-    rwin = RWindow(width, height, plane)
-    pdata = []
-    for i in range(pcount):
-        print(f"Merging {i+1}/{pcount}")
-        pdat = RWindow(width, height, plane)
-        pdat.deserialize(f"render{i}.dat")
-        rwin.data += pdat.data
+        # MERGE
+        rwin = RWindow(width, height, plane)
+        for i in range(workers):
+            print(f"Merging {i+1}/{workers}")
+            pdat = RWindow(width, height, plane)
+            pdat.deserialize(f"render{i}.dat")
+            rwin.data += pdat.data
+        rwin.serialize("render.dat")
+    else:
+        # Allow skipping render to play around with coloring/gradients without re-rendering every single time
+        # NOTE: if you change plane/resolution, you must re-render!
+        # TODO: Why do I get read-only here without double init?
+        rwin0 = RWindow(width, height, plane)
+        rwin0.deserialize("render.dat")
+        rwin = RWindow(width, height, plane)
+        rwin.data += rwin0.data
+
 
     # TODO: This is absurdly slow for some reason
     print("Normalizing...")
+    rmax, gmax, bmax = 1, 1, 1
+
+    # numpy is just as slow as plain iteration :(
+    # with numpy.nditer(rwin.data, op_flags=['readwrite']) as it:
+    # for rgb in numpy.nditer(rwin.data):
+    #     if rgb % 3 == 0:
+    #         rmax = max(rgb, rmax)
+    #     elif rgb % 3 == 1:
+    #         gmax = max(rgb, gmax)
+    #     else:
+    #         bmax = max(rgb, bmax)
+    for x in range(rwin.xres):
+        for y in range(rwin.yres):
+            # TODO: HACKITY HACK - needed because current render.dat mistakenly always added origin, creating a massive outlier
+            # if rwin.data[y][x * 3] > 50000:
+            #     continue
+            rmax = max(rwin.data[y][x * 3], rmax)
+            gmax = max(rwin.data[y][x * 3 + 1], gmax)
+            bmax = max(rwin.data[y][x * 3 + 2], bmax)
+
+    floor = 0
     def logconvert(value: int, maximum: int):
+        value = max(value - floor, 0)
         k = 255/math.log2(maximum)
         return k*math.log2(value+1)
 
+    def sqrt_curve(value: int, maximum: int):
+        return (255/math.sqrt(maximum)) * math.sqrt(value)
 
-    rmax, gmax, bmax = 1, 1, 1
+    def linear_curve(value: int, maximum: int):
+        return value*(255/maximum)
 
-    # for x in range(rwin.xres):
-    #     for y in range(rwin.yres):
-    #         rmax = max(rwin.data[y][x * 3], rmax)
-    #         gmax = max(rwin.data[y][x * 3 + 1], gmax)
-    #         bmax = max(rwin.data[y][x * 3 + 2], bmax)
-    # for x in range(rwin.xres):
-    #     for y in range(rwin.yres):
-    #         rwin.data[y][x * 3] = logconvert(rwin.data[y][x * 3], rmax*2)
-    #         # rwin.data[y][x * 3] *= 255/rmax
-    #         rwin.data[y][x * 3 + 1] = logconvert(rwin.data[y][x * 3 + 1], gmax*2)
-    #         rwin.data[y][x * 3 + 2] = logconvert(rwin.data[y][x * 3 + 2], bmax*2)
+
+    # with numpy.nditer(rwin.data, op_flags=['readwrite']) as it:
+    #     for rgb in it:
+    #         if rgb % 3 == 0:
+    #             rgb[...] = logconvert(rgb, rmax)
+    #         elif rgb % 3 == 1:
+    #             rgb[...] = logconvert(rgb, gmax)
+    #         else:
+    #             rgb[...] = logconvert(rgb, bmax)
+    print(f"red.max: {rmax}")
+    print(f"green.max: {gmax}")
+    print(f"blue.max: {bmax}")
+    # Color normalization - different trace counts / resolution will produce different maximum scales
+    for x in range(rwin.xres):
+        for y in range(rwin.yres):
+            red = rwin.data[y][x * 3]
+            green = rwin.data[y][x * 3 + 1]
+            blue = rwin.data[y][x * 3 + 2]
+
+            # for j in range(2):
+            #     rgb = rwin.data[y][x * 3 + j]
+            #     rmx = rmax/3
+            #     if rgb > rmx:
+            #         # rgb = linear_curve(rmx, rmx) + sqrt_curve(rgb-rmx, rmax-rmx)
+            #         # rgb_sqrt = sqrt_curve(rgb, rmax)
+            #         # rgb_lin = linear_curve(rgb, rmax)
+            #         rgb = min(linear_curve(rmx, rmax) + sqrt_curve(rgb, rmax), 255)
+            #     else:
+            #         rgb = min(linear_curve(rgb, rmx), 255)
+            #     # rwin.data[y][x * 3 + j] = sqrt_curve(rgb, rmax)
+            #     rwin.data[y][x * 3 + j] = rgb
+
+            blue = logconvert(blue, rmax)
+            green = (linear_curve(green, rmax) + sqrt_curve(green, rmax)) / 2
+            red = (linear_curve(red, rmax) + sqrt_curve(red, rmax)) / 2
+
+            # red = sqrt_curve(red, rmax)
+            # green = sqrt_curve(green, gmax)
+            # blue = sqrt_curve(blue, bmax)
+            # red = linear_curve(red, rmax/90)
+            # green = linear_curve(green, gmax/90)
+            # blue = linear_curve(blue, bmax/90)
+
+            rwin.data[y][x * 3] = red
+            rwin.data[y][x * 3 + 1] = green
+            rwin.data[y][x * 3 + 2] = blue
+
     print("Saving...")
     rwin.save("budda.png")
-
-
-
-
-
-
-
-
-    # if __name__ == '__main__':
-    #
-    #     # for x, y, pixel in rwin.iterator():
-    #     #     pixel.r = x
-    #     #     pixel.g = y
-    #     #     pixel.b = x*y/2
-    #     #     rwin.set_pixel(x, y, pixel)
-    #     #
-    #     # sys.exit(0)
-    #
-    #     for s in range(100000):
-    #         z = 0 + 0j
-    #         points = []
-    #         escapes = False
-    #         crand = numpy.random.random_sample(2)
-    #         c = 4*(crand[0]-0.5) + 4j*(crand[1]-0.5)
-    #         for i in range(50):
-    #             points.append((z.real, z.imag))
-    #             z = z*z + c
-    #             if z.real*z.real + z.imag*z.imag > 4:
-    #                 escapes = True
-    #                 break
-    #         if escapes:
-    #             for p in points:
-    #                 x, y = rwin.plane2xy(c.real, c.imag)
-    #                 pixel = rwin.get_pixel(x, y)
-    #                 pixel.r += 10
-    #                 rwin.set_pixel(x, y, pixel)
-    #
-    #     # for x in range(rwin.xres):
-    #     #     for y in range(rwin.yres):
-    #     #         cr, ci = rwin.xy2plane(x, y)
-    #     #         zr = 0.0
-    #     #         zi = 0.0
-    #     #         z = 0 + 0j
-    #     #         c = cr + ci*1j
-    #     #         for i in range(50):
-    #     #             zr0 = zr
-    #     #             zi0 = zi
-    #     #             z = z*z + c
-    #     #             # zr = (zr*zr - zi*zi) + cr
-    #     #             # zi = (2*zr0*zi) + ci
-    #     #             # if (zr*zr + zi*zi) > 4:
-    #     #             if z.imag*z.imag + z.real*z.real > 4:
-    #     #                 # px, py = rwin.plane2xy(cr, ci)
-    #     #                 rwin.set_pixel(x, y, Pixel(80.0*(2.0-(math.sqrt(cr*cr + ci*ci))), i*3, i*5))
-    #     #                 break
-    #     rwin.save("buddhabrot.png")
-    #
-    # # See PyCharm help at https://www.jetbrains.com/help/pycharm/
