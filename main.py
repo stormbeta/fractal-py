@@ -3,13 +3,30 @@
 import png
 from dataclasses import dataclass
 from typing import *
-import numpy
+import numpy as np
 import multiprocessing
 from multiprocessing import Process
 import math
 
+import functools
+import time
 
-# TODO: Remove this and just use raw array access
+# decorator to measure running time
+def measure_running_time(echo=True):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            t_1 = time.time()
+            ans = func(*args, **kwargs)
+            t_2 = time.time()
+            if echo:
+                print(f'{func.__name__}() running time is {t_2 - t_1:.2f} s')
+            return ans
+        return wrapped
+    return decorator
+
+
+# TODO: Remove this and just use raw array access?
 @dataclass
 class Pixel:
     r: int
@@ -40,7 +57,7 @@ class RWindow:
         self.dy = ((self.ymax - self.ymin) / self.yres)
         if self.dx != self.dy:
             print("WARNING: Aspect ratio mismatch!")
-        self.data = numpy.zeros(shape=(yres, xres*3), dtype=numpy.uint16)
+        self.data = np.zeros(shape=(yres, xres*3), dtype=np.uint16)
 
     def set_pixel(self, x: int, y: int, pixel: Pixel):
         self.data[y][x*3] = pixel.r
@@ -72,7 +89,7 @@ class RWindow:
     # WARNING: Will overwrite existing self.data!
     def deserialize(self, name: str):
         with open(name, "rb") as fp:
-            load = numpy.frombuffer(fp.read(), dtype=numpy.uint16)
+            load = np.frombuffer(fp.read(), dtype=np.uint16)
             load.shape = (self.yres, 3*self.xres)
             self.data = load
 
@@ -83,6 +100,10 @@ class RWindow:
 
 
 # TODO: Convert RWin to singleton for all values except data blob
+# width = 2048
+# height = 2048
+# max_iter = 1000
+max_iter = 100
 width = 1024
 height = 1024
 plane = (-1.75, -1.25, 0.75, 1.25)
@@ -90,47 +111,74 @@ plane = (-1.75, -1.25, 0.75, 1.25)
 
 
 def render(dump: str, count: int):
+    start_time = time.time()
+
     rwin = RWindow(width, height, plane)
     progress_increment = int(count/100)
-    # Define the plane we wish to render in 4D space
-    z_min = 0 + 0j
-    z_max = 0 + 0j
-    c_min = rwin.xmin + 1j*rwin.ymin
-    c_max = rwin.ymax + 1j*rwin.ymax
 
-    z_diff = z_max - z_min
-    c_diff = c_max - c_min
+    # Define the plane we wish to render in 4D space
+    # Well, sort of... I'm aware the math here isn't fully correct or even makes geometric sense
+    # m_min = np.array([0, 0, rwin.xmin, rwin.ymin])
+    # m_max = np.array([0, 0, rwin.xmax, rwin.ymax])
+    m_min = np.array([rwin.xmin, rwin.ymax, rwin.xmax, rwin.ymax])
+    m_max = np.array([rwin.xmax, rwin.ymin, rwin.xmin, rwin.ymin])
+
+    m_diff = m_max - m_min
+    # z_min = 0 + 0j
+    # z_max = 0 + 0j
+    # c_min = rwin.xmin + 1j*rwin.ymin
+    # c_max = rwin.ymax + 1j*rwin.ymax
+    randi = np.random.random_sample(count*4+1)
+    r_idx = 0
     for s in range(count):
         # Only track process from one of the threads, as otherwise it just spams console output
         if(dump == 'render0.dat' and s % progress_increment == 0):
             print(f"Progress: {int(s/progress_increment)}%")
         # z = 0 + 0j
-        points = []
         escapes = False
-        # crand = numpy.random.random_sample(2)
-        rand0, rand1 = numpy.random.random_sample(2)
+        # rand0, rand1 = randi[r_idx], randi[r_idx+1]
+        rand0, rand1, rand2, rand3 = randi[r_idx], randi[r_idx+1], randi[r_idx+2], randi[r_idx+3]
+        r_idx += 4
         # TODO: This math is definitely wrong, as it was supposed to render the normal buddhabrot if the z/c min/max were set normally
         #       Instead it renders some kind of abyssal horror
-        z = z_min.real + rand0 * z_diff.real + 1j*(z_min.imag+rand0*z_diff.imag)
-        c = c_min.real + rand1 * c_diff.real + 1j*(c_min.imag+rand1*c_diff.imag)
+        # z = z_min.real + rand0 * z_diff.real + 1j*(z_min.imag+rand0*z_diff.imag)
+        # c = c_min.real + rand1 * c_diff.real + 1j*(c_min.imag+rand1*c_diff.imag)
+        # z = 0 + 0j
+        z = m_min[0] + rand0 * m_diff[0].real + 1j*(m_min[1] + rand1 * m_diff[1])
+        c = m_min[2] + rand1 * m_diff[2].real + 1j*(m_min[3] + rand0 * m_diff[3])
+        # m_min[0] + rand0
         # c = ((rwin.xmax - rwin.xmin) * crand[0] + rwin.xmin) + 1j * ((rwin.ymax - rwin.ymin) * crand[1] + rwin.ymin)
-        for i in range(200):
+        xpoints = np.zeros(max_iter, dtype=float)
+        ypoints = np.zeros(max_iter, dtype=float)
+        limit = 0
+        for i in range(max_iter):
             z = z * z + c
-            if z.real * z.real + z.imag * z.imag > 3:
+            if z.real * z.real + z.imag * z.imag > 4:
                 escapes = True
                 break
-            points.append((z.real, z.imag))
-        if escapes:
-            for p in points:
-                r, i = p
-                x, y = rwin.plane2xy(r, i)
+            limit += 1
+            xpoints[i] = z.real
+            ypoints[i] = z.imag
+            # points.append((z.real, z.imag))
+        if not escapes:
+            # Weirdly, using numpy here is actually slower than calling rwin.plane2xy
+            # Guessing it's due to the relatively small size of the points lists
+            # npx = (xpoints - rwin.xmin) / rwin.dx - 1
+            # npy = rwin.yres - ((ypoints - rwin.ymin)/rwin.dy) - 1
+            for i in range(limit):
+                x, y = rwin.plane2xy(xpoints[i], ypoints[i])
+                # x = int(npx[i])
+                # y = int(npy[i])
                 if x < 0 or x >= rwin.xres or y < 0 or y >= rwin.yres:
                     continue
-                pixel = rwin.get_pixel(x, y)
-                pixel.r += 1
-                pixel.g += 1
-                pixel.b += 1
-                rwin.set_pixel(x, y, pixel)
+                # TODO: This is kind of silly - we should decouple color channels from render data
+                #       That way render data channels can focus on information only available at render time
+                #       All colorization calculations are already deferred to post-merge anyways
+                rwin.data[y, x*3] += 1
+                rwin.data[y, x*3 + 1] += 1
+                rwin.data[y, x*3 + 2] += 1
+    if (dump == 'render0.dat'):
+        print(f'{dump} running time is {start_time - time.time():.2f} s')
     rwin.serialize(dump)
 
 
@@ -140,7 +188,7 @@ if __name__ == '__main__':
     # skip_render = True
     skip_render = False
     if not skip_render:
-        traces = pow(2, 23)
+        traces = pow(2, 21)
         processes = []
         traces_per_process = int(traces / workers)
         print(f"Traces per process: {traces_per_process}")
@@ -159,6 +207,7 @@ if __name__ == '__main__':
             pdat.deserialize(f"render{i}.dat")
             rwin.data += pdat.data
         rwin.serialize("render.dat")
+        # TODO: Delete unmerged data
     else:
         # Allow skipping render to play around with coloring/gradients without re-rendering every single time
         # NOTE: if you change plane/resolution, you must re-render!
@@ -169,30 +218,45 @@ if __name__ == '__main__':
         rwin.data += rwin0.data
 
 
-    # TODO: This is absurdly slow for some reason
     print("Normalizing...")
     rmax, gmax, bmax = 1, 1, 1
 
-    # numpy is just as slow as plain iteration :(
-    # with numpy.nditer(rwin.data, op_flags=['readwrite']) as it:
-    # for rgb in numpy.nditer(rwin.data):
-    #     if rgb % 3 == 0:
-    #         rmax = max(rgb, rmax)
-    #     elif rgb % 3 == 1:
-    #         gmax = max(rgb, gmax)
-    #     else:
-    #         bmax = max(rgb, bmax)
-    for x in range(rwin.xres):
-        for y in range(rwin.yres):
-            # TODO: HACKITY HACK - needed because current render.dat mistakenly always added origin, creating a massive outlier
-            # if rwin.data[y][x * 3] > 50000:
-            #     continue
-            rmax = max(rwin.data[y][x * 3], rmax)
-            gmax = max(rwin.data[y][x * 3 + 1], gmax)
-            bmax = max(rwin.data[y][x * 3 + 2], bmax)
+    # Native numpy is ludicrously faster than iterating in python
+    rmax = np.max(rwin.data[:, 0::3])
+    gmax = np.max(rwin.data[:, 1::3])
+    bmax = np.max(rwin.data[:, 2::3])
+
+    def np_log_curve(arr, offset, maximum: int):
+        k = 255/math.log2(maximum)
+        arr[:, offset::3] = np.multiply(k, np.log2(arr[:, offset::3]))
+
+    def np_sqrt_curve(arr, offset, maximum: int):
+        k = 255/math.sqrt(maximum)
+        arr[:, offset::3] = k * np.sqrt(arr[:, offset::3])
+
+    #         red = (linear_curve(red, rmax) + sqrt_curve(red, rmax)) / 2
+    def np_quasi_curve(arr, offset, maximum: int):
+        linear_k = 255/maximum
+        sqrt_k = 255/math.sqrt(maximum)
+        arr[:, offset::3] = (sqrt_k*np.sqrt(arr[:, offset::3]) + linear_k*arr[:, offset::3]) / 2
+
+    def np_linear(arr, offset, maximum: int):
+        arr[:, offset::3] = (255/maximum) * arr[:, offset::3]
+
+
+    # rwin.data[:, 0::3] = (255/rmax) * rwin.data[:, 0::3]
+    np_sqrt_curve(rwin.data, 0, rmax/3)
+    # np_log_curve(rwin.data, 0, rmax*3)
+    np_sqrt_curve(rwin.data, 1, gmax/5)
+    np_log_curve(rwin.data, 2, bmax*1.5)
+
+    # np_linear(rwin.data, 0, rmax/7)
+    # np_linear(rwin.data, 1, gmax/7)
+    # np_log_curve(rwin.data, 2, bmax*3)
+    rwin.data = np.minimum(rwin.data, 255)
 
     floor = 0
-    def logconvert(value: int, maximum: int):
+    def log_curve(value: int, maximum: int):
         value = max(value - floor, 0)
         k = 255/math.log2(maximum)
         return k*math.log2(value+1)
@@ -203,52 +267,27 @@ if __name__ == '__main__':
     def linear_curve(value: int, maximum: int):
         return value*(255/maximum)
 
-
-    # with numpy.nditer(rwin.data, op_flags=['readwrite']) as it:
-    #     for rgb in it:
-    #         if rgb % 3 == 0:
-    #             rgb[...] = logconvert(rgb, rmax)
-    #         elif rgb % 3 == 1:
-    #             rgb[...] = logconvert(rgb, gmax)
-    #         else:
-    #             rgb[...] = logconvert(rgb, bmax)
     print(f"red.max: {rmax}")
     print(f"green.max: {gmax}")
     print(f"blue.max: {bmax}")
+
+    # TODO: This is absurdly slow for some reason
     # Color normalization - different trace counts / resolution will produce different maximum scales
-    for x in range(rwin.xres):
-        for y in range(rwin.yres):
-            red = rwin.data[y][x * 3]
-            green = rwin.data[y][x * 3 + 1]
-            blue = rwin.data[y][x * 3 + 2]
-
-            # for j in range(2):
-            #     rgb = rwin.data[y][x * 3 + j]
-            #     rmx = rmax/3
-            #     if rgb > rmx:
-            #         # rgb = linear_curve(rmx, rmx) + sqrt_curve(rgb-rmx, rmax-rmx)
-            #         # rgb_sqrt = sqrt_curve(rgb, rmax)
-            #         # rgb_lin = linear_curve(rgb, rmax)
-            #         rgb = min(linear_curve(rmx, rmax) + sqrt_curve(rgb, rmax), 255)
-            #     else:
-            #         rgb = min(linear_curve(rgb, rmx), 255)
-            #     # rwin.data[y][x * 3 + j] = sqrt_curve(rgb, rmax)
-            #     rwin.data[y][x * 3 + j] = rgb
-
-            blue = logconvert(blue, rmax)
-            green = (linear_curve(green, rmax) + sqrt_curve(green, rmax)) / 2
-            red = (linear_curve(red, rmax) + sqrt_curve(red, rmax)) / 2
-
-            # red = sqrt_curve(red, rmax)
-            # green = sqrt_curve(green, gmax)
-            # blue = sqrt_curve(blue, bmax)
-            # red = linear_curve(red, rmax/90)
-            # green = linear_curve(green, gmax/90)
-            # blue = linear_curve(blue, bmax/90)
-
-            rwin.data[y][x * 3] = red
-            rwin.data[y][x * 3 + 1] = green
-            rwin.data[y][x * 3 + 2] = blue
+    if False:
+        for x in range(rwin.xres):
+            for y in range(rwin.yres):
+                red = rwin.data[y][x * 3]
+                green = rwin.data[y][x * 3 + 1]
+                blue = rwin.data[y][x * 3 + 2]
+                blue = log_curve(blue, rmax)
+                green = sqrt_curve(green, gmax)
+                # green = (linear_curve(green, rmax) + sqrt_curve(green, rmax)) / 2
+                # red = (linear_curve(red, rmax) + sqrt_curve(red, rmax)) / 2
+                # red = sqrt_curve()
+                red = linear_curve(red, rmax)
+                rwin.data[y][x * 3] = red
+                rwin.data[y][x * 3 + 1] = green
+                rwin.data[y][x * 3 + 2] = blue
 
     print("Saving...")
     rwin.save("budda.png")
