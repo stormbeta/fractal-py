@@ -182,9 +182,16 @@ def np_linear(arr0, arr1, inset, outset, maximum: int):
 if __name__ == '__main__':
     workers = multiprocessing.cpu_count() - 1
 
-    # skip_render = True
-    skip_render = False
-    if not skip_render:
+    # TODO: CLI interface / args / flags
+    skip_render = True
+    # skip_render = False
+
+    if skip_render:
+        # Allow skipping render to play around with coloring/gradients without re-rendering every single time
+        # NOTE: Safe to use on render data from different plane/resolution, as that's stored alongside point data
+        rwin = RWindow.deserialize(f"render.dat")
+        output = RWindow(resolution=rwin.res, window=rwin.win)
+    else:
         traces = pow(2, 21)
         processes = []
         traces_per_process = int(traces / workers)
@@ -205,33 +212,23 @@ if __name__ == '__main__':
         rwin.serialize("render.dat")
         [os.remove(f"render{i}.dat") for i in range(workers)]
         output = RWindow(resolution=res, window=plane)
-    else:
-        # Allow skipping render to play around with coloring/gradients without re-rendering every single time
-        # NOTE: Safe to use on render data from different plane/resolution, as that's stored alongside point data
-        rwin = RWindow.deserialize(f"render.dat")
-        output = RWindow(resolution=rwin.res, window=rwin.win)
-
-
 
     print("Colorizing...")
 
-    # TODO: Technically this no longer makes sense as all render "color" channels are the same
-    #       Though if I make the channels represent different kinds of render data we'll still need these - might make more sense as array
-    rmax, gmax, bmax = 1, 1, 1
-
+    # TODO Convert this to array so that we can combine max + channel offset?
     # Native numpy is ludicrously faster than iterating manually in python
     nmax = np.max(rwin.data[:, 0::3])
     itermax = np.max(rwin.data[:, 1::3])
     innermax = np.max(rwin.data[:, 2::3])
-    print(f"nmax: {rmax}")
-    print(f"itermax: {gmax}")
-    print(f"innermax: {bmax}")
+    print(f"nmax: {nmax}")
+    print(f"itermax: {itermax}")
+    print(f"innermax: {innermax}")
 
     #         red = (linear_curve(red, rmax) + sqrt_curve(red, rmax)) / 2
     # rwin.data[:, 0::3] = (255/rmax) * rwin.data[:, 0::3]
     np_sqrt_curve(rwin.data, output.data, 0, 0, nmax/3)
     # np_log_curve(rwin.data, 0, rmax*3)
-    np_sqrt_curve(rwin.data, output.data, 0, 1, nmax/5)
+    np_sqrt_curve(rwin.data, output.data, 1, 1, itermax)
     np_log_curve(rwin.data, output.data, 0, 2, nmax*1.5)
 
     # np_linear(rwin.data, 0, rmax/7)
