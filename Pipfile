@@ -5,6 +5,7 @@ name = "pypi"
 
 [packages]
 pypng = "*"
+cython = "*"
 # 1.19.4 is broken on Windows
 numpy = "==1.19.3"
 

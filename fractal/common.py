@@ -3,8 +3,7 @@ from typing import *
 
 import png
 
-from rwindow import Resolution
-
+from .rwindow import Resolution
 
 def write_png(data, resolution: Resolution, name: str):
     with open(name, "wb") as fp:

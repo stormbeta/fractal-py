@@ -1,3 +1,4 @@
 *.png
 *.dat
 .idea
+*.pyd
