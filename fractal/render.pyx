@@ -9,12 +9,15 @@ from multiprocessing import Process
 from .common import *
 from .rwindow import Resolution, Window, RWindow
 
+from cython cimport view
+
 import numpy as np
 from numpy import ndarray
 cimport numpy as np
 # cnp.import_array()
 
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
+import cython
 import array
 from cpython cimport array
 from libc.string cimport memcpy
@@ -36,12 +39,24 @@ It's unclear if GPU compute could even help much here, except maybe in specific 
 rendering. We'd need to batch operations across multiple traces at once, but with no way to easily intervene for points that escape or not
 """
 
+# TODO: Monte Carlo Importance Sampling
+"""
+It's pretty obvious the most interesting traces come from the points near the mandelbrot set boundary, so ideally we could
+cluster traces near said boundary to drastically improve rendering efficiency.
+I don't think this is practical to do systematically, but it seems like there are algorithms for random sampling based on
+an importance map, which could be pre-generated as the standard mandelbrot set for the given resolution
+"""
+
 # TODO: Native inner loop
 """
 Python is quite convenient overall, but the traces still feel awfully slow compared to what I expected.
 I really don't want to write everything in C/C++, but perhaps we can use something like Cython to rewrite just the inner loop?
 Worst-case, extract just the foundational logic and ability to write into a data file as it's own code + config file....
 Though right now, that still makes up the bulk of the program
+
+UPDATE: Much of the inner-most loop is now mostly native via Cython, resulting in over 4x speedup
+        I still think I should try to do a pure C/C++ implementation though for comparison
+        Or at least attempt to convert the remaining inner loop to pure Cython (currently uses numpy)
 """
 cdef:
     struct Plane:
@@ -59,13 +74,14 @@ cdef:
     class RenderData:
         cdef Res resolution
         cdef Plane plane
-        cdef np.int32_t* data
+        cdef np.uint32_t* data
+        # cdef np.ndarray[np.uint32] data
         cdef double dx, dy
         cdef size_t size
 
         def __cinit__(self, Res res, Plane plane):
             self.size = res.height * res.width * 3
-            self.data = <np.int32_t*> PyMem_Malloc(self.size * sizeof(np.int32_t))
+            self.data = <np.uint32_t*> PyMem_Malloc(self.size * sizeof(np.uint32_t))
             self.resolution = res
             self.plane = plane
             self.dx = ((self.plane.xmax - self.plane.xmin) / self.resolution.width)
@@ -73,7 +89,7 @@ cdef:
             if not self.data:
                 raise MemoryError()
 
-        def plane2xy(self, double x, double y):
+        cdef Coordinate plane2xy(self, double x, double y):
             cdef Coordinate result
             cdef int rx = <int>(((x - self.plane.xmin) / self.dx) - 1)
             cdef int ry = <int>(self.resolution.height - int((y - self.plane.ymin) / self.dy) - 1)
@@ -85,7 +101,13 @@ cdef:
             PyMem_Free(self.data)
 
 
+
 # TODO: combine data in memory maybe? Though via disk has it's own advantages. Maybe generate RAM disk on the fly
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.overflowcheck(False)
+@cython.infer_types(True)
+@cython.cdivision(True)
 def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers: int, count: int):
     start_time = time.time()
 
@@ -101,8 +123,14 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     cplane.ymax = plane.ymax
     rw = RenderData(cres, cplane)
 
+    cdef int max_iterations = max_iter
+
     # TODO: Needs to be revised under chunk scheme
     # progress_increment = int(count/100)
+
+    # Ensure all numpy matrix operations are using cython
+    # NOTE: this doesn't actually seem to affect render times so much as static compile does
+    # cdef np.ndarray[np.double_t, ndim=2] m_min, m_max, m_diff, m_inc, m_chunk_inc, chunk_pos, chunk_start
 
     # Define the plane we wish to render in 4D space
     # Well, sort of... I'm aware the math here isn't fully correct or even makes geometric sense
@@ -112,24 +140,26 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     # m_max = np.array([rwin.xmax, rwin.ymin, rwin.xmin, rwin.ymin])
     m_diff = m_max - m_min
 
-    cdef int xres = resolution.width
-    cdef int yres = resolution.height
-
     # Loop vars - TODO: Not clear why these need to be declared up here...
-    cdef double xpoints[16384]
-    cdef double ypoints[16384]
-    cdef int limit = 0
     cdef:
+        int xres = resolution.width
+        int yres = resolution.height
+        double xpoints[32768]
+        double ypoints[32768]
+        int limit = 0
         double zr, zi, cr, ci
         double zr1
         Coordinate coord
+        int baseptr
+        int escapes
 
     # CHUNK CALCULATIONS
     # TODO: This assumes square-shaped plane/resolution
     sqrt_traces = int(math.sqrt(count))
     chunks_per_side = math.floor(sqrt_traces / 128)
     chunks = int(chunks_per_side * chunks_per_side)
-    sqrt_traces_per_chunk = int(sqrt_traces / chunks_per_side)
+    cdef int sqrt_traces_per_chunk = int(sqrt_traces / chunks_per_side)
+
     chunks_per_worker = math.ceil(chunks / workers)
     if id ==0:
         print(f"Chunks: {chunks}")
@@ -137,12 +167,6 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
         print(f"Chunks per worker: {chunks_per_worker}")
     m_inc  = (m_diff / sqrt_traces)
     m_chunk_inc = (m_diff / chunks_per_side)
-
-    # if id == 8:
-    #     print(m_min)
-    #     print(m_max)
-    #     print(f"Minc:\n{m_inc}")
-    #     print(f"Mchunk_inc:\n{m_chunk_inc}")
 
     # z_min = 0 + 0j
     # z_max = 0 + 0j
@@ -155,10 +179,6 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     #       I don't think there's anything wrong with staggered cartesian slices
     # rand_pool = np.random.random_sample(count*2+1)
     # rand_pool_idx = 0
-    # TODO: This is a shitty way of dividing work up, but w/e
-    # subtraces = int(math.sqrt(count))
-    # subtraces = count
-    # print(f"SUBTRACES: {subtraces}")
     # dz_t = complex(m_max[0] - m_min[0] / subtraces, m_max[1] - m_min[1] / subtraces)
     # dc_t = complex(m_max[2] - m_min[2] / subtraces, m_max[3] - m_min[3] / subtraces)
     # dc_t = (m_min[3] - m_min[2]) / subtraces
@@ -177,6 +197,7 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     # z0 = 0 + 0j
     progress_increment = (chunks / workers)/100
     chunker = 0
+    cdef double rad_scale = 4.0 / math.pow(2, 32)
     for chunk in range(id, chunks, workers):
         chunk_col = chunk % chunks_per_side
         chunk_row = math.floor(chunk / chunks_per_side)
@@ -192,6 +213,7 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
             for s1 in range(sqrt_traces_per_chunk):
                 # chunk_pos = chunk_start + np.dot([s0, s1], m_inc)
                 # chunk_pos = chunk_start + np.dot([[s0, s1], [s0, s1]], m_inc)
+                # TODO: Do this manually or figure out how to make numpy use cython directly
                 chunk_pos = chunk_start + np.dot(m_inc, [[s0, 0], [0, s1]])
                 # Only track process from one of the threads, as otherwise it just spams console output
                 # z = 0 + 0j
@@ -210,27 +232,12 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
                 # Correct window math, at least more correct than anything else
                 # z = m_min[0] + rand0 * m_diff[0].real + 1j*(m_min[1] + rand0 * m_diff[1])
                 # c = m_min[2] + rand1 * m_diff[2].real + 1j*(m_min[3] + rand1 * m_diff[3])
-                # z = complex(z0.real, z0.imag)
-                # c = complex(c0.real, c0.imag)
-                m_z = chunk_pos[0, :]
-                m_c = chunk_pos[1, :]
-                z = complex(m_z[0], m_z[1])
-                c = complex(m_c[0], m_c[1])
-                # x, y = rwin.plane2xy(c.real, c.imag)
-                # if not(x < 0 or x >= xres or y < 0 or y >= yres):
-                #     rwin.data[y, x*3] += 1
-                # continue
-                # m_min[0] + rand0
-                # c = ((rwin.xmax - rwin.xmin) * crand[0] + rwin.xmin) + 1j * ((rwin.ymax - rwin.ymin) * crand[1] + rwin.ymin)
-                # xpoints = np.empty(max_iter, dtype=float)
-                # ypoints = np.empty(max_iter, dtype=float)
-                # cdef np.ndarray[np.float_t, ndim=1] xpoints = np.empty(max_iter, dtype=np.float)
-                # cdef np.ndarray[np.float_t, ndim=1] ypoints = np.empty(max_iter, dtype=np.float)
-                zr, zi = m_z
-                cr, ci = m_c
+
+                zr, zi = chunk_pos[0, :]
+                cr, ci = chunk_pos[1, :]
                 limit = 0
-                for i in range(max_iter):
-                    # z = z * z + c
+
+                for i in range(max_iterations):
                     zr1 = zr*zr - zi*zi + cr
                     zi = 2*zr*zi + ci
                     zr = zr1
@@ -245,20 +252,18 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
                     # Ignore any points outside the render space
                     if coord.x < 0 or coord.x >= xres or coord.y < 0 or coord.y >= yres:
                         continue
-                    if escapes and render_outer:
-                        rw.data[coord.y*cres.width + coord.x*3] += 1
-                        # rw.data[coord.y*cres.width + coord.x*3 + 1] += i
+                    if escapes:
+                        baseptr = coord.y*cres.width*3 + coord.x*3
+                        rw.data[baseptr] += 1
+                        rw.data[baseptr + 1] += i
+                        # rw.data[baseptr + 2] += z
                     # TODO: Leave disabled for now, adds _WAY_ too much render time to do both inner/outer traces
                     #       unless actually intending to use both, even for relatively small trace/iteration counts
                     # elif render_inner:
                     #     for i in range(limit):
                     #         rwin.data[y, x * 3 + 2] += 1  # Non-escaping incrementor
-    # TODO: This is fucking awful, there has to be a better way to copy this data over to numpy?
-    #       Maybe should just use a cython array to begin with
-    cdef array.array data = array.array('i', [])
-    array.resize(data, rw.size)
-    memcpy(<void*> rw.data, data.data.as_voidptr, rw.size)
-    rwin.data = np.asarray(<np.int32_t[:resolution.height, :(resolution.width*3)]> rw.data)
+    # TODO: This is fucking awful IMO
+    rwin.data = np.asarray(<np.uint32_t[:resolution.height, :(resolution.width*3)]> rw.data)
     rwin.serialize(f"render{id}.dat")
 
 

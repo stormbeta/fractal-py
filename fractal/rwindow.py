@@ -5,6 +5,9 @@ from typing import *
 import numpy as np
 
 
+# TODO: This file is largely deprecated due to replacing much of the logic with Cython
+
+
 Resolution: Type[Tuple[int, int]] = namedtuple('Resolution', ['width', 'height'])
 Window: Type[Tuple[float, float, float, float]] = namedtuple('Window', ['xmin', 'ymin', 'xmax', 'ymax'])
 
@@ -50,6 +53,13 @@ class RWindow:
             fp.write(pack('iidddd', self.res.width, self.res.height,
                           self.win.xmin, self.win.ymin, self.win.xmax, self.win.ymax))
             fp.write(self.data.tobytes())
+
+    def _serialize(self, name: str, wat):
+        with open(name, "wb") as fp:
+            fp.write(pack('iidddd', self.res.width, self.res.height,
+                          self.win.xmin, self.win.ymin, self.win.xmax, self.win.ymax))
+            # fp.write(self.data.tobytes())
+            fp.write(wat.tobytes())
 
     # TODO: This creates RWindow as read-only
     @classmethod
