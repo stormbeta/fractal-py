@@ -1,9 +1,12 @@
-import pyximport; pyximport.install(language_level=3)
+import numpy as np
+import pyximport
+pyximport.install(language_level=3,
+                  setup_args={'include_dirs': np.get_include()})
 from fractal.render import *
 
 # max_iter = 1000
 max_iter = int(math.pow(10, 2))
-traces = pow(2, 22)
+traces = pow(2, 20)
 res = Resolution(1024, 1024)
 plane = Window(-1.75, -1.25, 0.75, 1.25)
 # plane = Window(-2.0, -2.0, 2.0, 2.0)

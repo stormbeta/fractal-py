@@ -10,8 +10,14 @@ from .common import *
 from .rwindow import Resolution, Window, RWindow
 
 import numpy as np
-# cimport numpy as cnp
+from numpy import ndarray
+cimport numpy as np
 # cnp.import_array()
+
+from cpython.mem cimport PyMem_Malloc, PyMem_Free
+import array
+from cpython cimport array
+from libc.string cimport memcpy
 
 
 render_outer = True
@@ -37,6 +43,46 @@ I really don't want to write everything in C/C++, but perhaps we can use somethi
 Worst-case, extract just the foundational logic and ability to write into a data file as it's own code + config file....
 Though right now, that still makes up the bulk of the program
 """
+cdef:
+    struct Plane:
+        double xmin, ymin, xmax, ymax
+
+    struct Res:
+        int width, height
+
+    struct Coordinate:
+        int x, y
+
+    struct Point:
+        double x, y
+
+    class RenderData:
+        cdef Res resolution
+        cdef Plane plane
+        cdef np.int32_t* data
+        cdef double dx, dy
+        cdef size_t size
+
+        def __cinit__(self, Res res, Plane plane):
+            self.size = res.height * res.width * 3
+            self.data = <np.int32_t*> PyMem_Malloc(self.size * sizeof(np.int32_t))
+            self.resolution = res
+            self.plane = plane
+            self.dx = ((self.plane.xmax - self.plane.xmin) / self.resolution.width)
+            self.dy = ((self.plane.ymax - self.plane.ymin) / self.resolution.height)
+            if not self.data:
+                raise MemoryError()
+
+        def plane2xy(self, double x, double y):
+            cdef Coordinate result
+            cdef int rx = <int>(((x - self.plane.xmin) / self.dx) - 1)
+            cdef int ry = <int>(self.resolution.height - int((y - self.plane.ymin) / self.dy) - 1)
+            result.x = rx
+            result.y = ry
+            return result
+
+        def __dealloc__(self):
+            PyMem_Free(self.data)
 
 
 # TODO: combine data in memory maybe? Though via disk has it's own advantages. Maybe generate RAM disk on the fly
@@ -44,6 +90,16 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     start_time = time.time()
 
     rwin = RWindow(resolution, plane)
+    # TODO: There's got to be a better way to handle these conversions
+    cdef Res cres
+    cres.width = resolution.width
+    cres.height = resolution.height
+    cdef Plane cplane
+    cplane.xmin = plane.xmin
+    cplane.ymin = plane.ymin
+    cplane.xmax = plane.xmax
+    cplane.ymax = plane.ymax
+    rw = RenderData(cres, cplane)
 
     # TODO: Needs to be revised under chunk scheme
     # progress_increment = int(count/100)
@@ -64,11 +120,9 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
     cdef double ypoints[16384]
     cdef int limit = 0
     cdef:
-        double zr
-        double zi
-        double cr
-        double ci
+        double zr, zi, cr, ci
         double zr1
+        Coordinate coord
 
     # CHUNK CALCULATIONS
     # TODO: This assumes square-shaped plane/resolution
@@ -187,28 +241,24 @@ def render(id: int, resolution: Resolution, plane: Window, max_iter:int, workers
                     xpoints[i] = zr
                     ypoints[i] = zi
                 for i in range(limit):
-                    # Weirdly, using numpy here is actually slower than calling rwin.plane2xy
-                    # Guessing it's due to the relatively small size of the points lists
-                    # npx = (xpoints - rwin.xmin) / rwin.dx - 1
-                    # npy = rwin.yres - ((ypoints - rwin.ymin)/rwin.dy) - 1
-                    # x = int(npx[i])
-                    # y = int(npy[i])
-                    x, y = rwin.plane2xy(xpoints[i], ypoints[i])
+                    coord = rw.plane2xy(xpoints[i], ypoints[i])
                     # Ignore any points outside the render space
-                    if x < 0 or x >= xres or y < 0 or y >= yres:
+                    if coord.x < 0 or coord.x >= xres or coord.y < 0 or coord.y >= yres:
                         continue
                     if escapes and render_outer:
-                        # rwin.data[y, x*3] += 1      # Baseline incrementor
-                        # rwin.data[y, x*3 + 1] += i  # Based on iteration count to reach this point
-                        row = rwin.data[y]
-                        row[x*3] += 1
-                        row[x*3+1] += i
-
+                        rw.data[coord.y*cres.width + coord.x*3] += 1
+                        # rw.data[coord.y*cres.width + coord.x*3 + 1] += i
                     # TODO: Leave disabled for now, adds _WAY_ too much render time to do both inner/outer traces
                     #       unless actually intending to use both, even for relatively small trace/iteration counts
-                    elif render_inner:
-                        for i in range(limit):
-                            rwin.data[y, x * 3 + 2] += 1  # Non-escaping incrementor
+                    # elif render_inner:
+                    #     for i in range(limit):
+                    #         rwin.data[y, x * 3 + 2] += 1  # Non-escaping incrementor
+    # TODO: This is fucking awful, there has to be a better way to copy this data over to numpy?
+    #       Maybe should just use a cython array to begin with
+    cdef array.array data = array.array('i', [])
+    array.resize(data, rw.size)
+    memcpy(<void*> rw.data, data.data.as_voidptr, rw.size)
+    rwin.data = np.asarray(<np.int32_t[:resolution.height, :(resolution.width*3)]> rw.data)
     rwin.serialize(f"render{id}.dat")
 
 
