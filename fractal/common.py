@@ -10,7 +10,7 @@ import png
 #         writer = png.Writer(resolution.width, resolution.height, greyscale=False)
 #         writer.write(fp, data.astype('uint8'))
 
-global_resolution: int = 2048
+global_resolution: int = 1024
 
 
 def seconds_convert(seconds: Union[float, int]) -> str:

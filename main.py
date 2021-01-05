@@ -1,8 +1,13 @@
+import multiprocessing as mp
+import ctypes
+from datetime import datetime
+
 import numpy as np
 import pyximport
-import sys
+
 pyximport.install(language_level=3,
                   setup_args={'include_dirs': np.get_include()})
+
 from fractal.render import *
 from fractal.common import global_resolution
 
@@ -17,37 +22,42 @@ from fractal.common import global_resolution
 # plane = Window(-1.75, -1.25, 0.75, 1.25)
 # plane = Window(-2.0, -2.0, 2.0, 2.0)
 # TODO: CLI interface / args / flags
+
 # skip_render = True
 skip_render = False
 
-def rendrend(angle: float):
-    # workers = multiprocessing.cpu_count()
+def rendrend(shared_data: mp.Array, angle: float):
+    workers = mp.cpu_count()
     workers = 12
     resolution = global_resolution
 
     if not skip_render:
+        # TODO: For animated renders, convert this to one worker per frame
+        #       And possibly use some kind of Pool/Queue to delegate work
         start_time = time.time()
         processes = []
         for i in range(workers):
-            proc = Process(target=dothing, args=(i, workers, angle))
+            proc = mp.Process(target=nebula, args=(i, shared_data, workers, angle))
             processes.append(proc)
             proc.start()
         for proc in processes:
             proc.join()
         print(f"\nElapsed: {seconds_convert(time.time() - start_time)}")
 
-        data = np.zeros(dtype=np.uint32, shape=(resolution, resolution * 3))
-        for i in range(workers):
-            with open(f"render{i}.dat", "rb") as fp:
-                load = np.frombuffer(fp.read(), dtype=np.uint32)
-                load.shape = (resolution, resolution * 3)
-                # output_filename = f"renders/wat/wat_{i}.png"
-                # with open(output_filename, "wb") as fp:
-                #     writer = png.Writer(resolution, resolution, greyscale=False)
-                #     writer.write(fp, load.astype('uint8'))
-                data += load
-                # with open('render.dat', 'wb') as fp:
-                #     fp.write(data.tobytes())
+        # data = np.zeros(dtype=np.uint32, shape=(resolution, resolution * 3))
+        data = np.frombuffer(shared_data.get_obj(), dtype=np.uint32)
+        data.shape = (resolution, resolution * 3)
+        # for i in range(workers):
+        #     with open(f"render{i}.dat", "rb") as fp:
+        #         load = np.frombuffer(fp.read(), dtype=np.uint32)
+        #         load.shape = (resolution, resolution * 3)
+        #         # output_filename = f"renders/wat/wat_{i}.png"
+        #         # with open(output_filename, "wb") as fp:
+        #         #     writer = png.Writer(resolution, resolution, greyscale=False)
+        #         #     writer.write(fp, load.astype('uint8'))
+        #         data += load
+        #         # with open('render.dat', 'wb') as fp:
+        #         #     fp.write(data.tobytes())
     else:
         with open(f"render.dat", "rb") as fp:
             data = np.frombuffer(fp.read(), dtype=np.uint32)
@@ -56,7 +66,7 @@ def rendrend(angle: float):
     output = np.zeros(dtype=np.uint32, shape=(resolution, resolution * 3))
     nmax = np.max(data[:, 0::3])
     print(f"nmax: {nmax}")
-    nmax = 320
+    # nmax = 320
     # imax = np.max(data[:, 1::3])
     np_sqrt_curve(data, output, 0, 2, nmax)
     np_linear(data, output, 0, 1, nmax*0.60)
@@ -69,12 +79,17 @@ def rendrend(angle: float):
 
 
 if __name__ == '__main__':
+    print('---')
 
-    theta = (math.pi/120) * 40
-    theta_end = (math.pi/120) * 60
-    while theta < math.pi:
-        rendrend(theta)
-        theta += math.pi/1200
+    shared_data = mp.Array(ctypes.c_uint32, global_resolution*global_resolution*3)
+    rendrend(shared_data, 0.0)
+
+
+    # theta = (math.pi/120) * 40
+    # theta_end = (math.pi/120) * 60
+    # while theta < math.pi:
+    #     rendrend(theta)
+    #     theta += math.pi/1200
 
     # workers = 10
     # if skip_render:
