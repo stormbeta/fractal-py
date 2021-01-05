@@ -3,12 +3,14 @@ from typing import *
 
 import png
 
-from .rwindow import Resolution
+# from .rwindow import Resolution
 
-def write_png(data, resolution: Resolution, name: str):
-    with open(name, "wb") as fp:
-        writer = png.Writer(resolution.width, resolution.height, greyscale=False)
-        writer.write(fp, data.astype('uint8'))
+# def write_png(data, resolution: Resolution, name: str):
+#     with open(name, "wb") as fp:
+#         writer = png.Writer(resolution.width, resolution.height, greyscale=False)
+#         writer.write(fp, data.astype('uint8'))
+
+global_resolution: int = 2048
 
 
 def seconds_convert(seconds: Union[float, int]) -> str:

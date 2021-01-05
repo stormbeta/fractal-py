@@ -21,6 +21,8 @@ Window: Type[Tuple[float, float, float, float]] = namedtuple('Window', ['xmin', 
 #     double xmax
 #     double ymax
 
+
+
 class RWindow:
     res: Resolution
     win: Window
