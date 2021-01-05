@@ -10,7 +10,8 @@ import png
 #         writer = png.Writer(resolution.width, resolution.height, greyscale=False)
 #         writer.write(fp, data.astype('uint8'))
 
-global_resolution: int = 1024
+# global_resolution: int = 1024
+global_resolution: int = 2048
 
 
 def seconds_convert(seconds: Union[float, int]) -> str:
@@ -20,9 +21,9 @@ def seconds_convert(seconds: Union[float, int]) -> str:
         int(seconds) % 60)
 
 
-def progress_milestone(start_time: float, percent: int) -> None:
+def progress_milestone(start_time: float, percent: float) -> None:
     if percent > 0:
         eta = seconds_convert(int((100 - percent) * (time.time() - start_time) / percent))
     else:
         eta = "?"
-    print(f"\rProgress: {percent}% (ETA: {eta})", end='')
+    print(f"\rProgress: {percent:.2f}% (ETA: {eta})", end='')

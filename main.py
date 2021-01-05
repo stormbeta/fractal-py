@@ -47,6 +47,8 @@ def rendrend(shared_data: mp.Array, angle: float):
         # data = np.zeros(dtype=np.uint32, shape=(resolution, resolution * 3))
         data = np.frombuffer(shared_data.get_obj(), dtype=np.uint32)
         data.shape = (resolution, resolution * 3)
+        with open('render.dat', 'wb') as fp:
+            fp.write(data.tobytes())
         # for i in range(workers):
         #     with open(f"render{i}.dat", "rb") as fp:
         #         load = np.frombuffer(fp.read(), dtype=np.uint32)
@@ -67,9 +69,10 @@ def rendrend(shared_data: mp.Array, angle: float):
     nmax = np.max(data[:, 0::3])
     print(f"nmax: {nmax}")
     # nmax = 320
-    # imax = np.max(data[:, 1::3])
-    np_sqrt_curve(data, output, 0, 2, nmax)
-    np_linear(data, output, 0, 1, nmax*0.60)
+    imax = np.max(data[:, 1::3])
+    np_sqrt_curve(data, output, 0, 1, nmax)
+    np_linear(data, output, 0, 2, nmax*0.60)
+    np_sqrt_curve(data, output, 1, 0, imax*0.60)
     output = np.minimum(255, output)
 
     output_filename = f"renders/nebula_{int(datetime.now().timestamp())}.png"
