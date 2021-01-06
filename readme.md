@@ -9,3 +9,7 @@ pip install cython
 
 python main.py
 ```
+
+You'll need a working C compiler for Cython to work, e.g. gcc
+
+No CLI yet, all config is still in code as I've constantly been tweaking it.
