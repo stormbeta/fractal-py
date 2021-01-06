@@ -1,17 +1,15 @@
 import time
 from typing import *
 
-import png
 
-# from .rwindow import Resolution
-
-# def write_png(data, resolution: Resolution, name: str):
-#     with open(name, "wb") as fp:
-#         writer = png.Writer(resolution.width, resolution.height, greyscale=False)
-#         writer.write(fp, data.astype('uint8'))
-
-# global_resolution: int = 1024
-global_resolution: int = 2048
+# TODO: these should be in some kind of config singleton instead
+global_resolution: int = 1024
+# global_resolution: int = 2048
+enable_progress_indicator: bool = False
+enable_histogram_render: bool = True
+enable_render_dat_save: bool = True
+enable_histogram_powerclamp: bool = True
+RSHAPE = (global_resolution, global_resolution * 3)
 
 
 def seconds_convert(seconds: Union[float, int]) -> str:
@@ -26,4 +24,4 @@ def progress_milestone(start_time: float, percent: float) -> None:
         eta = seconds_convert(int((100 - percent) * (time.time() - start_time) / percent))
     else:
         eta = "?"
-    print(f"\rProgress: {percent:.2f}% (ETA: {eta})", end='')
+    print(f"\rProgress: {percent:.2f}% (ETA: {eta} ¯\\_(ツ)_/¯)", end='')

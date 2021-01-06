@@ -1,7 +1,5 @@
 cimport numpy as np
 
-ctypedef np.ndarray RenderData
-
 cdef:
     struct Plane:
         double xmin, ymin, xmax, ymax
@@ -28,4 +26,4 @@ cdef:
             int iteration_limit
             Point4 m_min, m_max, m_diff, m_dt
 
-    render_histogram(RenderConfig rconfig, np.ndarray[np.uint32_t, ndim=2] data)
+    np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig rconfig, int min_density, int max_density)
