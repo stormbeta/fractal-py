@@ -169,8 +169,8 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
 
     # Minimum traces per side of any given chunk (traces per chunk equals density^2)
     # If equal, disable histogram optimization
-    cdef int min_density = 64
-    cdef int max_density = 64
+    cdef int min_density = 16
+    cdef int max_density = 16
     assert min_density > 0
 
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
