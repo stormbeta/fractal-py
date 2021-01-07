@@ -2,23 +2,25 @@ import multiprocessing as mp
 import ctypes
 from datetime import datetime
 import png
+import sys
 
 import numpy as np
+from PyQt5.QtWidgets import QApplication, QWidget
 import pyximport
 
 pyximport.install(language_level=3,
                   setup_args={'include_dirs': np.get_include()})
 
 from fractal.render import *
-from fractal.common import global_resolution, enable_render_dat_save
+from fractal.common import config, flags
 
 # skip_render = True
 skip_render = False
 
 
 def render_frame(theta: float, workers: int, number: int = -1):
-    resolution = global_resolution
-    shared_data = mp.Array(ctypes.c_double, global_resolution*global_resolution*3)
+    resolution = config.global_resolution
+    shared_data = mp.Array(ctypes.c_float, pow(config.global_resolution, 2)*3)
 
     if not skip_render:
         start_time = time.time()
@@ -30,17 +32,17 @@ def render_frame(theta: float, workers: int, number: int = -1):
         for proc in processes:
             proc.join()
         print(f"\nElapsed: {seconds_convert(time.time() - start_time)}")
-        data = np.frombuffer(shared_data.get_obj(), dtype=np.float64)
-        data.shape = RSHAPE
-        if enable_render_dat_save:
+        data = np.frombuffer(shared_data.get_obj(), dtype=np.float32)
+        data.shape = config.rshape()
+        if flags.save_render_data:
             with open('render.dat', 'wb') as fp:
                 fp.write(data.tobytes())
     else:
         with open(f"render.dat", "rb") as fp:
-            data = np.frombuffer(fp.read(), dtype=np.float64)
-            data.shape = RSHAPE
+            data = np.frombuffer(fp.read(), dtype=np.float32)
+            data.shape = config.rshape()
 
-    output = np.zeros(dtype=np.uint32, shape=RSHAPE)
+    output = np.zeros(dtype=np.uint32, shape=config.rshape())
     # TODO: Configure coloring as a separate step/function for easier experimentation
     # TODO: add colorspace and gradient functions to allow a wider range of coloring schemes
     # TODO: Convert render data to be floating point instead of integer, only the PNG output needs to be uint8
@@ -61,9 +63,9 @@ def render_frame(theta: float, workers: int, number: int = -1):
     # max_value: this should correspond to nmax for input0, or imax for input1
     #            since there's often outliers, you can inversely scale brightness by adding a constant scaling factor to the max value
     # np_sqrt_curve(data, output, 0, 1, nmax)
-    np_sqrt_curve(data, output, 2, 2, rmax/2)
-    np_sqrt_curve(data, output, 1, 1, imax/2)
-    np_linear(data, output,     0, 0, nmax/2)
+    np_sqrt_curve(data, output, 2, 2, rmax/3)
+    np_linear(data, output, 1, 1, imax)
+    np_linear(data, output,     0, 0, nmax/3)
     output = np.minimum(255, output)
 
     if number == -1:
@@ -83,6 +85,8 @@ def multirender(id: int, workers: int, start: float, stop: float, frames: int):
 
 
 if __name__ == '__main__':
+    config.global_resolution = 1024
+
     start  = 0.0
     stop   = -2*math.pi
     # frames = 24*60
@@ -90,6 +94,7 @@ if __name__ == '__main__':
     frames = 1
 
     workers = mp.cpu_count() - 1
+    # workers = 12
     log = mp.get_logger()
     if frames == 1:
         log.info("Single frame render mode")

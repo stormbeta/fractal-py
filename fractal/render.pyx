@@ -3,14 +3,14 @@
 import math
 import multiprocessing as mp
 from datetime import datetime
-import png
 
-cimport numpy as np
 import cython
 import numpy as np
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
+cimport numpy as np
+import png
 
 from .common import *
+from .data cimport *
 
 # TODO: user interface
 """
@@ -35,67 +35,6 @@ UPDATE: more or less done via histogram density trick, but it looks like this ma
         Not sure why, but iteration count coloring is now mostly uniform.
 """
 
-cdef:
-    # Yes I know numpy already implements all these, but the overhead for tiny 2x2 matrices is large, numpy is meant for larger datasets
-    # Dot-product
-    # [[ Zr, Zi ]   \/  [[ Zr, Zi ]
-    #  [ Cr, Ci ]]  /\   [ Cr, Ci ]]
-    cdef Point4 p4_dot(Point4 a, Point4 b):
-        return Point4(a.zr * b.zr + a.zi * b.cr, a.zr * b.zi + a.zi * b.ci,
-                      a.cr * b.zr + a.ci * b.cr, a.cr * b.zi + a.ci * b.ci)
-
-    cdef Point4 p4_scalar_mult(Point4 a, double scalar):
-        return Point4(a.zr * scalar, a.zi * scalar,
-                      a.cr * scalar, a.ci * scalar)
-
-    cdef Point4 p4_scalar_div(Point4 a, double divisor):
-        return Point4(a.zr / divisor, a.zi / divisor,
-                      a.cr / divisor, a.ci / divisor)
-
-    cdef Point4 p4_add(Point4 a, Point4 b):
-        return Point4(a.zr + b.zr, a.zi + b.zi,
-                      a.cr + b.cr, a.ci + b.ci)
-
-    cdef Point4 p4_sub(Point4 a, Point4 b):
-        return Point4(a.zr - b.zr, a.zi - b.zi,
-                      a.cr - b.cr, a.ci - b.ci)
-
-    cdef Point4 p4_iterate(Point4 a):
-        return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-                      a.cr                            , a.ci)
-
-    class RenderWindow:
-        def __cinit__(self, Plane plane, int resolution):
-            self.resolution = resolution
-            self.plane = plane
-            self.dx = ((plane.xmax - plane.xmin) / resolution)
-            self.dy = ((plane.ymax - plane.ymin) / resolution)
-
-        # NOTE: Inlining these doesn't seem to actually help performance
-        cdef int x2column(self, double x):
-            return <int>(((x - self.plane.xmin) / self.dx) - 1)
-
-        cdef int y2row(self, double y):
-            return <int>(self.resolution - int((y - self.plane.ymin) / self.dy) - 1)
-
-        cdef double col2x(self, int x):
-            return self.plane.xmin + (<double>x * self.dx)
-
-        cdef double row2y(self, int y):
-            return self.plane.ymax - (<double>y * self.dy)
-
-
-    class RenderConfig:
-        def __cinit__(self, RenderWindow rwin, int iteration_limit,
-                      Point4 m_min, Point4 m_max):
-            self.rwin = rwin
-            self.iteration_limit = iteration_limit
-            plane = rwin.plane
-            self.m_min = m_min
-            self.m_max = m_max
-            self.m_diff = p4_sub(self.m_max, self.m_min)
-            self.m_dt = p4_scalar_div(self.m_diff, rwin.resolution)
-
 
 # TODO: Configurable clamping of values to powers of 2
 """
@@ -113,24 +52,29 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
         Point4 point
 
     data = np.full(fill_value=min_density, dtype=np.uint8, shape=(rwin.resolution, rwin.resolution))
-    if min_density == max_density:
-        # print("Skipping histogram render as density interval is constant")
-        return data
 
     for x in range(rwin.resolution):
         for y in range(rwin.resolution):
+            escapes = False
             point = p4_add(histcfg.m_min, p4_dot(histcfg.m_dt, Point4(x, 0, 0, y)))
             for i in range(histcfg.iteration_limit):
                 point = p4_iterate(point)
                 if point.zr * point.zr + point.zi * point.zi > 4:
-                    data[x, y] = i
+                    data[x, y] = max(i, min_density)
+                    escapes = True
                     break
+            if not escapes:
+                # TODO: We should only zero out points with no non-zero neighbors
+                data[x, y] = 0
 
     # Linearly scale histogram to fit min/max density
     # NOTE: minor artifacting if density is not a power of 2 TODO: power of 2, or just cleanly divisible by 2?
-    hist_k = max_density / np.max(data)
-    # return np.maximum(np.multiply(hist_k, data), min_density).astype(np.uint8)
-    return np.maximum(data, min_density).astype(np.uint8)
+    hist_k = (max_density / np.max(data)) - 1
+    # print(f"hist_k: {hist_k}")
+    wat = (data + np.multiply(hist_k, data)).astype(np.uint8)
+    # print(f"wat: {np.max(wat)}")
+    return np.maximum(wat, 1)
+    # return data.astype(np.uint8)
 
 
 @cython.boundscheck(False)
@@ -145,7 +89,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     # TODO: This needs to be global or something
     plane = Plane(-1.75, -1.25, 0.75, 1.25)
     # plane = Plane(-2, -2, 2, 2)
-    rwin = RenderWindow(plane, global_resolution)
+    rwin = RenderWindow(plane, config.global_resolution)
 
     # TODO: This should be more configurable - it determines the primary location of the render after all
     # IMPORTANT: histogram and main render *must* use the same plane, m_min, and m_max!
@@ -159,7 +103,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
     # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
 
-    rconfig = RenderConfig(rwin, pow(2, 10), m_min, m_max)
+    rconfig = RenderConfig(rwin, pow(2, 13), m_min, m_max)
 
     # TODO: avoid regenerating histogram for every worker? Though honestly unless I parallelize it doesn't really matter
     #       and it's fast enough anyways other than per-frame, and per-frame I probably only want one worker per frame anyways
@@ -169,30 +113,28 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
 
     # Minimum traces per side of any given chunk (traces per chunk equals density^2)
     # If equal, disable histogram optimization
-    cdef int min_density = 16
-    cdef int max_density = 16
+    cdef int min_density = 48
+    cdef int max_density = 48
     assert min_density > 0
 
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
     histwin = RenderWindow(plane, rwin.resolution)
     histcfg = RenderConfig(histwin, pow(2, 8), m_min, m_max)
     histdata = render_histogram(histcfg, min_density, max_density)
-    if enable_histogram_powerclamp:
-        histdata[...] = 2 * np.floor_divide(histdata, 2)
     if id == 0:
         print(f"log2(traces) = {math.log2(np.sum(histdata)):.2f}")
         print(f"density interval: ({min_density}, {max_density})")
-        if enable_histogram_render:
+        if flags.save_histogram_png:
             output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
             with open(output_filename, "wb") as fp:
                 writer = png.Writer(histwin.resolution, histwin.resolution, greyscale=True)
                 writer.write(fp, histdata.astype('uint8'))
 
-    rdata = np.full(fill_value=0, dtype=np.float64, shape=RSHAPE)
+    rdata = np.full(fill_value=0, dtype=np.float32, shape=config.rshape())
     render2(id, rconfig, histcfg, histdata, rdata, workers)
     with shared_data.get_lock():
-        shared = np.frombuffer(shared_data.get_obj(), dtype=np.float64)
-        shared.shape = RSHAPE
+        shared = np.frombuffer(shared_data.get_obj(), dtype=np.float32)
+        shared.shape = config.rshape()
         shared += rdata
 
 
@@ -205,7 +147,7 @@ def render2(id: int,
             RenderConfig rconfig,
             RenderConfig histcfg,
             np.ndarray[np.uint8_t, ndim=2] histogram,
-            np.ndarray[np.float64_t, ndim=2] data,
+            np.ndarray[np.float32_t, ndim=2] data,
             workers: int):
 
     # NOTE: iteration_limit _must_ be less than or equal to 65536 because of the static xpoints/ypoints arrays
@@ -227,7 +169,7 @@ def render2(id: int,
         int count = 0
         double radius
 
-    if id == 0 and enable_progress_indicator:
+    if id == 0 and flags.progress_indicator:
         progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
 
     start_time = time.time()
@@ -238,7 +180,7 @@ def render2(id: int,
         chunk_row = math.floor(chunk / sqrt_chunks)
         chunk_density = histogram[chunk_col, chunk_row]
         assert chunk_density > 0
-        if id == 0 and enable_progress_indicator:
+        if id == 0 and flags.progress_indicator:
             # print(f"CHUNKER {chunk}/{chunks}: {chunk_col}, {chunk_row} (traces: {chunk_density*chunk_density})")
             count += chunk_density
             if chunk % 32 == 0:

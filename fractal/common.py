@@ -1,15 +1,33 @@
 import time
 from typing import *
 
+from dataclasses import dataclass, fields
 
-# TODO: these should be in some kind of config singleton instead
-global_resolution: int = 1024
-# global_resolution: int = 2048
-enable_progress_indicator: bool = False
-enable_histogram_render: bool = True
-enable_render_dat_save: bool = True
-enable_histogram_powerclamp: bool = True
-RSHAPE = (global_resolution, global_resolution * 3)
+
+@dataclass()
+class ConfigSingleton:
+    def reset(self, obj: 'ConfigSingleton'):
+        for field in fields(self.__class__):
+            setattr(self, field.name, getattr(obj, field.name))
+
+
+@dataclass()
+class Flags(ConfigSingleton):
+    progress_indicator: bool = True
+    save_render_data: bool = True
+    save_histogram_png: bool = False
+
+
+@dataclass()
+class Config(ConfigSingleton):
+    global_resolution: int = 1024
+
+    def rshape(self) -> Tuple[int, int]:
+        return (self.global_resolution, self.global_resolution * 3)
+
+
+flags = Flags()
+config = Config()
 
 
 def seconds_convert(seconds: Union[float, int]) -> str:
