@@ -174,7 +174,7 @@ def render2(id: int,
         Point4 p, chunk_start, chunk_pos, chunk_end, chunk_dt
         int chunks = sqrt_chunks*sqrt_chunks
         int chunk_count = 0
-        np.ndarray[np.uint16_t, ndim=1] chunk_list
+        np.ndarray[np.uint32_t, ndim=1] chunk_list
         int count = 0
         double radius
 
@@ -186,11 +186,9 @@ def render2(id: int,
     start_time = time.time()
 
     # Core rendering loops
-    chunk_list = np.fromiter(range(id, chunks, workers), dtype=np.uint16)
-    np.random.shuffle(chunk_list)
+    chunk_list = np.fromiter(range(id, chunks, workers), dtype=np.uint32)
     if id == 0:
-        print(chunk_list)
-    # for chunk in range(id, chunks, workers):
+        np.random.shuffle(chunk_list)
     for chunk in chunk_list:
         chunk_col = chunk % sqrt_chunks
         chunk_row = math.floor(chunk / sqrt_chunks)
