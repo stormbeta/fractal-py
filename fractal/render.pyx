@@ -147,7 +147,7 @@ def render2(id: int,
             RenderConfig rconfig,
             RenderConfig histcfg,
             np.ndarray[np.uint8_t, ndim=2] histogram,
-            np.ndarray[np.float32_t, ndim=2] data,
+            np.ndarray[np.float32_t, ndim=3] data,
             workers: int):
 
     # NOTE: iteration_limit _must_ be less than or equal to 65536 because of the static xpoints/ypoints arrays
@@ -208,28 +208,28 @@ def render2(id: int,
                         x, y = xpoints[i], ypoints[i]
                         if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
                             a, b = rwin.x2column(x), rwin.y2row(y)
-                            data[a, b * 3] += 1
-                            data[a, b * 3 + 1] += i
-                            data[a, b * 3 + 2] += radius
+                            data[a, b, 0] += 1
+                            data[a, b, 1] += i
+                            data[a, b, 2] += radius
 
 
 # TODO: split these into separate file
 def np_log_curve(arr0, arr1, inset, outset, maximum: int):
     k = 255/math.log2(maximum)
-    arr1[:, outset::3] = np.multiply(k, np.log2(arr0[:, inset::3]))
+    arr1[:, :, outset] = np.multiply(k, np.log2(arr0[:, :, inset]))
 
 def np_sqrt_curve(arr0, arr1, inset, outset, maximum: int):
     k = 255/math.sqrt(maximum)
-    arr1[:, outset::3] = k * np.sqrt(arr0[:, inset::3])
+    arr1[:, :, outset] = k * np.sqrt(arr0[:, :, inset])
 
 def np_inv_sqrt_curve(arr0, arr1, inset, outset, maximum: int):
     k = 255/math.sqrt(maximum)
-    arr1[:, outset::3] = maximum - k * np.sqrt(arr0[:, inset::3])
+    arr1[:, :, outset] = maximum - k * np.sqrt(arr0[:, :, inset])
 
 def np_quasi_curve(arr0, arr1, inset, outset, maximum: int):
     linear_k = 255/maximum
     sqrt_k = 255/math.sqrt(maximum)
-    arr1[:, outset::3] = (sqrt_k*np.sqrt(arr0[:, inset::3]) + linear_k*arr0[:, inset::3]) / 2
+    arr1[:, :, outset] = (sqrt_k*np.sqrt(arr0[:, :, inset]) + linear_k*arr0[:, :, inset]) / 2
 
 def np_linear(arr0, arr1, inset, outset, maximum: int):
-    arr1[:, outset::3] = (255/maximum) * arr0[:, inset::3]
+    arr1[:, :, outset] = (255/maximum) * arr0[:, :, inset]

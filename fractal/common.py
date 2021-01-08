@@ -22,8 +22,8 @@ class Flags(ConfigSingleton):
 class Config(ConfigSingleton):
     global_resolution: int = 1024
 
-    def rshape(self) -> Tuple[int, int]:
-        return (self.global_resolution, self.global_resolution * 3)
+    def rshape(self) -> Tuple[int, int, int]:
+        return (self.global_resolution, self.global_resolution, 3)
 
 
 flags = Flags()

@@ -48,9 +48,9 @@ def render_frame(theta: float, workers: int, number: int = -1):
     # TODO: Convert render data to be floating point instead of integer, only the PNG output needs to be uint8
     # NOTE: Keep nmax/imax as constants when rendering animations
     #       Otherwise average brightness could change every frame!
-    nmax = np.max(data[:, 0::3])
-    imax = np.max(data[:, 1::3])
-    rmax = np.max(data[:, 2::3])
+    nmax = np.max(data[:, :, 0])
+    imax = np.max(data[:, :, 1])
+    rmax = np.max(data[:, :, 2])
     # nmax = 2500
     print(f"nmax: {nmax}, imax: {imax}, rmax: {rmax}")
     # Color function args: (input_data, output_data, input_channel, output_color, max_value)
@@ -74,7 +74,7 @@ def render_frame(theta: float, workers: int, number: int = -1):
         output_filename = f"frames/nebula-{number:04d}-{int(datetime.now().timestamp())}.png"
     with open(output_filename, "wb") as fp:
         writer = png.Writer(resolution, resolution, greyscale=False)
-        writer.write(fp, output.astype('uint8'))
+        writer.write(fp, output.astype('uint8').reshape(resolution, resolution * 3))
 
 
 def multirender(id: int, workers: int, start: float, stop: float, frames: int):
@@ -86,6 +86,8 @@ def multirender(id: int, workers: int, start: float, stop: float, frames: int):
 
 if __name__ == '__main__':
     config.global_resolution = 1024
+    print(f"Resolution: {config.global_resolution}")
+
 
     start  = 0.0
     stop   = -2*math.pi
