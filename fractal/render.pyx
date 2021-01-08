@@ -66,15 +66,19 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
             if not escapes:
                 # TODO: We should only zero out points with no non-zero neighbors
                 data[x, y] = 0
-
+    # Next to the boundary, points that "escape" on the histogram actually contain both escaping and non-escaping points
+    # And the non-escaping points are always high iteration count, so default to max_density
+    data2 = np.copy(data)
+    for x in range(rwin.resolution):
+        for y in range(rwin.resolution):
+            if data[x, y] == 0:
+                if data[x+1, y] != 0 or data[x, y+1] != 0 or data[x-1, y] != 0 or data[x, y-1] != 0:
+                    data2[x, y] = max_density
+    data = data2
     # Linearly scale histogram to fit min/max density
-    # NOTE: minor artifacting if density is not a power of 2 TODO: power of 2, or just cleanly divisible by 2?
     hist_k = (max_density / np.max(data)) - 1
-    # print(f"hist_k: {hist_k}")
-    wat = (data + np.multiply(hist_k, data)).astype(np.uint8)
-    # print(f"wat: {np.max(wat)}")
-    return np.maximum(wat, 1)
-    # return data.astype(np.uint8)
+    scaled = (data + np.multiply(hist_k, data)).astype(np.uint8)
+    return np.maximum(scaled, 1)
 
 
 @cython.boundscheck(False)
@@ -113,13 +117,13 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
 
     # Minimum traces per side of any given chunk (traces per chunk equals density^2)
     # If equal, disable histogram optimization
-    cdef int min_density = 48
-    cdef int max_density = 48
+    cdef int min_density = 36
+    cdef int max_density = 36
     assert min_density > 0
 
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
     histwin = RenderWindow(plane, rwin.resolution)
-    histcfg = RenderConfig(histwin, pow(2, 8), m_min, m_max)
+    histcfg = RenderConfig(histwin, pow(2, 7), m_min, m_max)
     histdata = render_histogram(histcfg, min_density, max_density)
     if id == 0:
         print(f"log2(traces) = {math.log2(np.sum(histdata)):.2f}")
@@ -170,6 +174,8 @@ def render2(id: int,
         double radius
 
     if id == 0 and flags.progress_indicator:
+        # traces calculated so far / traces remaining, based on dynamic density counts from histogram
+        # Unfortunately it's still not very accurate since calculation time per trace varies wildly, especially with higher iteration counts
         progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
 
     start_time = time.time()
