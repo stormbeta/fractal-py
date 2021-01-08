@@ -3,14 +3,17 @@
 import math
 import multiprocessing as mp
 from datetime import datetime
+import time
+import random
 
 import cython
 import numpy as np
 cimport numpy as np
 import png
 
-from .common import *
+from .common import config, progress_milestone
 from .data cimport *
+
 
 # TODO: user interface
 """
@@ -66,7 +69,7 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
             if not escapes:
                 # TODO: We should only zero out points with no non-zero neighbors
                 data[x, y] = 0
-    # Next to the boundary, points that "escape" on the histogram actually contain both escaping and non-escaping points
+    # Next to the boundary, chunks that "escape" on the histogram actually contain both escaping and non-escaping points
     # And the non-escaping points are always high iteration count, so default to max_density
     data2 = np.copy(data)
     for x in range(rwin.resolution):
@@ -102,12 +105,12 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     # m_max = Point4(math.sin(time_var), math.cos(time_var),
     #                plane.xmax, plane.ymax)
     m_min = Point4(1-math.cos(dt), math.sin(dt), plane.xmin, plane.ymin)
-    m_max = Point4(1-math.cos(dt/2), math.sin(dt/2), plane.xmax, plane.ymax)
+    m_max = Point4(1-math.cos(0), math.sin(0), plane.xmax, plane.ymax)
     # Standard mandelbrot plane, where z0 is always 0 + 0i
     # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
     # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
 
-    rconfig = RenderConfig(rwin, pow(2, 13), m_min, m_max)
+    rconfig = RenderConfig(rwin, config.iteration_limit, m_min, m_max)
 
     # TODO: avoid regenerating histogram for every worker? Though honestly unless I parallelize it doesn't really matter
     #       and it's fast enough anyways other than per-frame, and per-frame I probably only want one worker per frame anyways
@@ -128,7 +131,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     if id == 0:
         print(f"log2(traces) = {math.log2(np.sum(histdata)):.2f}")
         print(f"density interval: ({min_density}, {max_density})")
-        if flags.save_histogram_png:
+        if config.save_histogram_png:
             output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
             with open(output_filename, "wb") as fp:
                 writer = png.Writer(histwin.resolution, histwin.resolution, greyscale=True)
@@ -170,10 +173,12 @@ def render2(id: int,
         int i, points, chunk_density, chunk_col, chunk_row
         Point4 p, chunk_start, chunk_pos, chunk_end, chunk_dt
         int chunks = sqrt_chunks*sqrt_chunks
+        int chunk_count = 0
+        np.ndarray[np.uint16_t, ndim=1] chunk_list
         int count = 0
         double radius
 
-    if id == 0 and flags.progress_indicator:
+    if id == 0 and config.progress_indicator:
         # traces calculated so far / traces remaining, based on dynamic density counts from histogram
         # Unfortunately it's still not very accurate since calculation time per trace varies wildly, especially with higher iteration counts
         progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
@@ -181,16 +186,23 @@ def render2(id: int,
     start_time = time.time()
 
     # Core rendering loops
-    for chunk in range(id, chunks, workers):
+    chunk_list = np.fromiter(range(id, chunks, workers), dtype=np.uint16)
+    np.random.shuffle(chunk_list)
+    if id == 0:
+        print(chunk_list)
+    # for chunk in range(id, chunks, workers):
+    for chunk in chunk_list:
         chunk_col = chunk % sqrt_chunks
         chunk_row = math.floor(chunk / sqrt_chunks)
         chunk_density = histogram[chunk_col, chunk_row]
         assert chunk_density > 0
-        if id == 0 and flags.progress_indicator:
+        if id == 0 and config.progress_indicator:
             # print(f"CHUNKER {chunk}/{chunks}: {chunk_col}, {chunk_row} (traces: {chunk_density*chunk_density})")
             count += chunk_density
             if chunk % 32 == 0:
-                progress_milestone(start_time, ((count / progress_total) * 100))
+                progress_milestone(start_time, ((chunk_count/chunk_list.size)*100))
+                # progress_milestone(start_time, ((count / progress_total) * 100))
+            chunk_count += 1
         chunk_start = p4_add(rconfig.m_min,
                              p4_dot(histcfg.m_dt, Point4(chunk_col, 0, 0, chunk_row)))
         chunk_dt = p4_scalar_div(histcfg.m_dt, chunk_density)

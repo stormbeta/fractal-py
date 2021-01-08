@@ -12,7 +12,7 @@ pyximport.install(language_level=3,
                   setup_args={'include_dirs': np.get_include()})
 
 from fractal.render import *
-from fractal.common import config, flags
+from fractal.common import config, seconds_convert
 
 # skip_render = True
 skip_render = False
@@ -34,7 +34,7 @@ def render_frame(theta: float, workers: int, number: int = -1):
         print(f"\nElapsed: {seconds_convert(time.time() - start_time)}")
         data = np.frombuffer(shared_data.get_obj(), dtype=np.float32)
         data.shape = config.rshape()
-        if flags.save_render_data:
+        if config.save_render_data:
             with open('render.dat', 'wb') as fp:
                 fp.write(data.tobytes())
     else:
@@ -85,7 +85,9 @@ def multirender(id: int, workers: int, start: float, stop: float, frames: int):
 
 
 if __name__ == '__main__':
-    config.global_resolution = 1024
+    # config.global_resolution = 4096
+    # config.iteration_limit = pow(2, 15)
+    # flags.save_histogram_png = True
     print(f"Resolution: {config.global_resolution}")
 
 
