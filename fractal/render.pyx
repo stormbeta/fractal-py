@@ -4,7 +4,6 @@ import math
 import multiprocessing as mp
 from datetime import datetime
 import time
-import random
 
 import cython
 import numpy as np
@@ -16,8 +15,8 @@ from .data cimport *
 
 # FEATURES:
 """
-* FAST: Use normal mandelbrot/julia render as index for density, and also to skip regions with 100% escaped pixels
-*       Core loop is near-native Cython/Numpy
+* Somewhat optimized: Use normal mandelbrot/julia render as index for density, and also to skip regions with 100% escaped pixels
+* Core loop is near-native Cython/Numpy
 * Allow dynamic density of tracing based on coarse iteration count from mandel/julia (minor speed increase, better for increasing contast if desired)
 * Deterministic output - Does not rely on random sampling of points, fixed cartesian distribution of variable density used instead
                          This is especially important for rendering animations to avoid flickering/noisy output!
@@ -39,6 +38,7 @@ It's unclear if GPU compute could even help much here, except maybe in specific 
 rendering. We'd need to batch operations across multiple traces at once, but with no way to easily intervene for points that escape or not
 """
 
+# TODO: This should probably be renamed, it's not really a histogram, just mandelbrot/julia tweaked for optimizing main loop
 cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int min_density, int max_density):
     cdef:
         Plane plane = histcfg.rwin.plane
@@ -48,6 +48,7 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
         int i = 0
         int x, y
         Point4 point
+        double threshold2 = config.escape_threshold*config.escape_threshold
 
     data = np.full(fill_value=min_density, dtype=np.uint8, shape=(rwin.resolution, rwin.resolution))
 
@@ -57,7 +58,7 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
             point = p4_add(histcfg.m_min, p4_dot(histcfg.m_dt, Point4(x, 0, 0, y)))
             for i in range(histcfg.iteration_limit):
                 point = p4_iterate(point)
-                if point.zr * point.zr + point.zi * point.zi > 4:
+                if point.zr * point.zr + point.zi * point.zi > threshold2:
                     data[x, y] = max(i, min_density)
                     escapes = True
                     break
@@ -89,18 +90,19 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
         Plane plane
         np.ndarray[np.uint8_t, ndim=2] histdata
     # TODO: This needs to be global or something
-    plane = Plane(-1.75, -1.25, 0.75, 1.25)
-    # plane = Plane(-2, -2, 2, 2)
+    # plane = Plane(-1.75, -1.25, 0.75, 1.25)
+    plane = Plane(-2, -2, 2, 2)
+    # plane = Plane(-1.5, -1.5, 1.5, 1.5)
     rwin = RenderWindow(plane, config.global_resolution)
 
     # TODO: This should be more configurable - it determines the primary location of the render after all
     # IMPORTANT: histogram and main render *must* use the same plane, m_min, and m_max!
+    m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
+    m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
     # m_min = Point4(math.sin(-time_var), math.cos(-time_var),
     #                plane.xmin, plane.ymin)
     # m_max = Point4(math.sin(time_var), math.cos(time_var),
     #                plane.xmax, plane.ymax)
-    m_min = Point4(1-math.cos(dt), math.sin(dt), plane.xmin, plane.ymin)
-    m_max = Point4(1-math.cos(0), math.sin(0), plane.xmax, plane.ymax)
     # Standard mandelbrot plane, where z0 is always 0 + 0i
     # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
     # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
@@ -119,8 +121,9 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     #                      4x32 higher contrast, ~20% faster in some cases
     #                     64x64 for ultra high resolution, or 4x64 for higher contrast
     # NOTE: This isn't really much of a performance optimization, it has a bigger effect on color/contrast
-    cdef int min_density = 1
-    cdef int max_density = 32
+    # TODO: Move these to config file
+    cdef int min_density = 16
+    cdef int max_density = 16
     assert min_density > 0
 
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
@@ -179,18 +182,17 @@ def render2(id: int,
         np.ndarray[np.uint32_t, ndim=1] chunk_list
         int count = 0
         double radius
-
-    if id == 0 and config.progress_indicator:
-        # traces calculated so far / traces remaining, based on dynamic density counts from histogram
-        # Unfortunately it's still not very accurate since calculation time per trace varies wildly, especially with higher iteration counts
-        progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
+        double threshold2 = config.escape_threshold*config.escape_threshold
 
     start_time = time.time()
 
-    # Core rendering loops
     chunk_list = np.fromiter(range(id, chunks, workers), dtype=np.uint32)
-    if id == 0:
+    if id == 0 and config.progress_indicator:
         np.random.shuffle(chunk_list)
+        progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
+        print(f"log2(chunks): {math.log2(chunks):.2f}")
+
+    # Core rendering loops
     for chunk in chunk_list:
         chunk_col = chunk % sqrt_chunks
         chunk_row = math.floor(chunk / sqrt_chunks)
@@ -200,8 +202,8 @@ def render2(id: int,
             # print(f"CHUNKER {chunk}/{chunks}: {chunk_col}, {chunk_row} (traces: {chunk_density*chunk_density})")
             count += chunk_density
             if chunk % 32 == 0:
-                progress_milestone(start_time, ((chunk_count/chunk_list.size)*100))
-                # progress_milestone(start_time, ((count / progress_total) * 100))
+                # progress_milestone(start_time, ((chunk_count/chunk_list.size)*100))
+                progress_milestone(start_time, ((count / progress_total) * 100))
             chunk_count += 1
         chunk_start = p4_add(rconfig.m_min,
                              p4_dot(histcfg.m_dt, Point4(chunk_col, 0, 0, chunk_row)))
@@ -215,7 +217,7 @@ def render2(id: int,
                 points = 0
                 for i in range(rconfig.iteration_limit):
                     p = p4_iterate(p)
-                    if p.zr * p.zr + p.zi * p.zi > 4:
+                    if p.zr * p.zr + p.zi * p.zi > threshold2:
                         escapes = True
                         break
                     # TODO: For shits and giggles, set this above 1. Yes I know that's completely wrong
