@@ -104,7 +104,7 @@ if __name__ == '__main__':
     # frames = 2400
     frames = 1
 
-    workers = mp.cpu_count() - 2
+    workers = config.workers
     log = mp.get_logger()
     if frames == 1:
         log.info("Single frame render mode")

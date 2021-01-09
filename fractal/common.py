@@ -2,6 +2,7 @@ import time
 import toml
 from typing import *
 from dataclasses import dataclass, fields
+import multiprocessing as mp
 
 
 @dataclass
@@ -15,6 +16,7 @@ class Config:
     escape_threshold: float
     min_density: int
     max_density: int
+    workers: int
 
     # Uncommon flags
     skip_hist_boundary_check: bool
@@ -40,7 +42,11 @@ class Config:
             cfg.max_density = density_range[1]
             cfg.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
             cfg.skip_hist_optimization = data.get('skip_hist_optimization', False)
-
+            workers = data.get('workers', -1)
+            if workers > 0:
+                cfg.workers = workers
+            else:
+                cfg.workers = workers + mp.cpu_count()
             assert cfg.min_density > 0 and cfg.max_density < 256
             assert cfg.iteration_limit <= 65536
         return cfg
