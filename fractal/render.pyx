@@ -39,7 +39,7 @@ rendering. We'd need to batch operations across multiple traces at once, but wit
 """
 
 # TODO: This should probably be renamed, it's not really a histogram, just mandelbrot/julia tweaked for optimizing main loop
-cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int min_density, int max_density):
+cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg):
     cdef:
         Plane plane = histcfg.rwin.plane
         RenderWindow rwin = histcfg.rwin
@@ -67,30 +67,28 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
                 data[x, y] = 0
     # Next to the boundary, chunks that "escape" on the histogram actually contain both escaping and non-escaping points
     # And the non-escaping points are always high iteration count, so default to max_density
+    # NOTE: You probably want to disable this in some cases where there's no contiguous non-escaping areas
     if not config.skip_hist_boundary_check:
         data2 = np.copy(data)
         for x in range(1, rwin.resolution - 1):
             for y in range(1, rwin.resolution - 1):
                 neighbor_sum = data[x, y] + data[x + 1, y] + data[x, y + 1] + data[x - 1, y] + data[x, y - 1]
                 if neighbor_sum > 0:
-                    data2[x,y] = config.max_density / 4
+                    data2[x,y] = neighbor_sum / 4
         data = data2
     # Linearly scale histogram to fit min/max density
     # TODO: This code isn't as consistent as it should be for animations
     if config.min_density != config.max_density:
         diff = config.max_density - config.min_density
         data = (data*(config.max_density / np.max(data))).astype(np.uint8)
-        return data.clip(config.min_density, config.max_density)
-        # hist_k = (config.max_density / np.max(data)) - 1
-        # scaled = (data + np.multiply(hist_k, data)).astype(np.uint8)
-        # return np.maximum(scaled, 1)
+        return data.clip(1, config.max_density)
     else:
-        return data
+        return data.clip(1, config.max_density)
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-# @cython.overflowcheck(False)
+@cython.overflowcheck(False)
 @cython.infer_types(True)    # NOTE: Huge performance boost
 @cython.cdivision(True)      # NOTE: Huge performance boost
 def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
@@ -98,22 +96,22 @@ def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
         Plane plane
         np.ndarray[np.uint8_t, ndim=2] histdata
     # TODO: This needs to be global or something
-    # plane = Plane(-1.75, -1.25, 0.75, 1.25)
-    plane = Plane(-2, -2, 2, 2)
+    plane = Plane(-1.75, -1.25, 0.75, 1.25)
+    # plane = Plane(-2, -2, 2, 2)
     # plane = Plane(-0.8, -1.1, 1.4, 1.1)
     rwin = RenderWindow(plane, config.global_resolution)
 
     # TODO: This should be more configurable - it determines the primary location of the render after all
     # IMPORTANT: histogram and main render *must* use the same plane, m_min, and m_max!
-    m_min = Point4(plane.ymax, plane.xmax, plane.xmax, plane.ymin)
-    m_max = Point4(plane.ymin, plane.xmin, plane.xmin, plane.ymax)
+    # m_min = Point4(plane.ymax, plane.xmax, plane.xmax, plane.ymin)
+    # m_max = Point4(plane.ymin, plane.xmin, plane.xmin, plane.ymax)
     # m_min = Point4(math.sin(-time_var), math.cos(-time_var),
     #                plane.xmin, plane.ymin)
     # m_max = Point4(math.sin(time_var), math.cos(time_var),
     #                plane.xmax, plane.ymax)
     # Standard mandelbrot plane, where z0 is always 0 + 0i
-    # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
-    # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
+    m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
+    m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
 
     rconfig = RenderConfig(rwin, config.iteration_limit, m_min, m_max)
 
@@ -139,7 +137,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
     # if config.skip_hist_optimization:
     #     histdata = np.full(dtype=np.uint8, fill_value=min_density, shape=(histwin.resolution, histwin.resolution))
     # else:
-    histdata = render_histogram(histcfg, min_density, max_density)
+    histdata = render_histogram(histcfg)
     if id == 0 and config.progress_indicator:
         print(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
         print(f"density interval: ({min_density}, {max_density})")

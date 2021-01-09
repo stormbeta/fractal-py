@@ -26,10 +26,8 @@ cdef:
                       a.cr - b.cr, a.ci - b.ci)
 
     cdef Point4 p4_iterate(Point4 a):
-        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-        #               a.cr                            , a.ci)
         return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-                      a.cr-a.zi                           , a.ci-a.zr)
+                      a.cr                            , a.ci)
 
         # Corrupted iterate - face-like appearance
         # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,

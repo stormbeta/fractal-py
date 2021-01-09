@@ -1,13 +1,13 @@
 {
-  "resolution": 4096,
-  "iteration_limit_power": 10,
-  "escape_threshold": 3.0,
-  "min_density": 4,
-  "max_density": 64,
+  "resolution": 1024,
+  "iteration_limit_power": 9,
+  "escape_threshold": 2.0,
+  "min_density": 16,
+  "max_density": 16,
   "save_histogram_png": true,
   "progress_indicator": true,
   "save_render_data": true,
 
   "skip_hist_optimization": false,
-  "skip_hist_boundary_check": true
+  "skip_hist_boundary_check": false
 }
