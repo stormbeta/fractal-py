@@ -1,0 +1,19 @@
+# === MAIN ===
+resolution = 1024
+iteration_limit_power = 9
+escape_threshold = 2.0
+density_range = [16, 16]
+# Default to cpu_count - 1
+workers = -1
+
+# == FLAGS ===
+
+# Set all of these to false if rendering multiple frames
+save_histogram_png = true
+progress_indicator = true
+save_render_data = true
+
+# Set true if there's no contiguous non-escaping regions
+skip_hist_boundary_check = false
+
+skip_hist_optimization = false

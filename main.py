@@ -25,7 +25,7 @@ def render_frame(theta: float, workers: int, number: int = -1):
         start_time = time.time()
         processes = []
         for i in range(workers):
-            proc = mp.Process(target=nebula, args=(i, shared_data, workers, theta))
+            proc = mp.Process(target=nebula, args=(i, shared_data, workers, config, theta))
             processes.append(proc)
             proc.start()
         for proc in processes:
@@ -85,17 +85,17 @@ def render_frame(theta: float, workers: int, number: int = -1):
 
 def multirender(id: int, workers: int, start: float, stop: float, frames: int):
     t_delta: float = (stop - start) / frames
+    print("Disabling frame progress indicator, render.dat, and histogram png for multi-frame render")
+    config.progress_indicator = False
+    config.save_render_data = False
+    config.save_histogram_png = False
     for frame in range(id, frames, workers):
         theta: float = start + t_delta*frame
         render_frame(theta, 1, frame)
 
 
 if __name__ == '__main__':
-    # config.global_resolution = 4096
-    # config.iteration_limit = pow(2, 15)
-    # flags.save_histogram_png = True
     print(f"Resolution: {config.global_resolution}")
-
 
     start  = 0.0
     stop   = math.pi/2

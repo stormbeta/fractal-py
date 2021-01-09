@@ -10,7 +10,7 @@ import numpy as np
 cimport numpy as np
 import png
 
-from .common import config, progress_milestone
+from .common import config, Config, progress_milestone
 from .data cimport *
 
 # FEATURES:
@@ -91,7 +91,9 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg):
 @cython.overflowcheck(False)
 @cython.infer_types(True)    # NOTE: Huge performance boost
 @cython.cdivision(True)      # NOTE: Huge performance boost
-def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
+def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: double):
+    # Allow overrides from main.py
+    config.inline_copy(cfg)
     cdef:
         Plane plane
         np.ndarray[np.uint8_t, ndim=2] histdata
@@ -117,9 +119,6 @@ def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
 
     # TODO: avoid regenerating histogram for every worker? Though honestly unless I parallelize it doesn't really matter
     #       and it's fast enough anyways other than per-frame, and per-frame I probably only want one worker per frame anyways
-    # TODO: Give some way of dynamically setting desired trace instead of byproduct of density/histogram?
-    #       This is kind of hard to calculate in reverse
-    # traces = pow(2, 20)
 
     # Minimum traces per side of any given chunk (traces per chunk equals density^2)
     # Any chunks containing _only_ escaped points will be skipped entirely
@@ -127,7 +126,6 @@ def nebula(id: int, shared_data: mp.Array, workers: int, theta: double):
     #                      4x32 higher contrast, ~20% faster in some cases
     #                     64x64 for ultra high resolution, or 4x64 for higher contrast
     # NOTE: This isn't really much of a performance optimization, it has a bigger effect on color/contrast
-    # TODO: Move these to config file
     cdef int min_density = config.min_density
     cdef int max_density = config.max_density
 
