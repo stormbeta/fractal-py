@@ -3,6 +3,8 @@ import json
 from typing import *
 
 
+# TODO: Maybe pass this as another parameter to render methods, or make it a field on RenderConfig?
+#       Ugly option: pass into main process then assign to global ourselves
 class Config:
     progress_indicator: bool = True
     save_render_data: bool = True
@@ -12,6 +14,7 @@ class Config:
     iteration_limit: int = pow(2, 10)
 
     def __init__(self):
+        # TODO: Use something other than json, I don't care if it adds a dependency. Use YAML or TOML
         with open('config.json', 'r') as fp:
             data = json.load(fp)
             self.iteration_limit = pow(2, data['iteration_limit_power'])

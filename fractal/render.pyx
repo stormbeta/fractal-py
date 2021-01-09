@@ -14,6 +14,18 @@ import png
 from .common import config, progress_milestone
 from .data cimport *
 
+# FEATURES:
+"""
+* FAST: Use normal mandelbrot/julia render as index for density, and also to skip regions with 100% escaped pixels
+*       Core loop is near-native Cython/Numpy
+* Allow dynamic density of tracing based on coarse iteration count from mandel/julia (minor speed increase, better for increasing contast if desired)
+* Deterministic output - Does not rely on random sampling of points, fixed cartesian distribution of variable density used instead
+                         This is especially important for rendering animations to avoid flickering/noisy output!
+* Parallel processing: Uses Python's multiprocessing library and multiple copies of the pixel buffer to allow parallel computation
+* 4D cartesian plane coordinates, allowing for non-standard render planes (no rotation as I don't know how to define that in 4D space)
+        TODO: allow use of polar-form coordinates for curved render planes
+"""
+
 
 # TODO: user interface
 """
@@ -27,23 +39,6 @@ It's unclear if GPU compute could even help much here, except maybe in specific 
 rendering. We'd need to batch operations across multiple traces at once, but with no way to easily intervene for points that escape or not
 """
 
-# TODO: Monte Carlo Importance Sampling
-"""
-It's pretty obvious the most interesting traces come from the points near the mandelbrot set boundary, so ideally we could
-cluster traces near said boundary to drastically improve rendering efficiency.
-I don't think this is practical to do systematically, but it seems like there are algorithms for random sampling based on
-an importance map, which could be pre-generated as the standard mandelbrot set for the given resolution
-
-UPDATE: more or less done via histogram density trick, but it looks like this makes the iteration count coloring almost worthless
-        Not sure why, but iteration count coloring is now mostly uniform.
-"""
-
-
-# TODO: Configurable clamping of values to powers of 2
-"""
-If you don't clamp density to powers of two, you wind up with rounding artifacts that are pretty visible
-in static renders, though not so much if rendering animated sequences
-"""
 cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int min_density, int max_density):
     cdef:
         Plane plane = histcfg.rwin.plane
@@ -72,8 +67,8 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg, int m
     # Next to the boundary, chunks that "escape" on the histogram actually contain both escaping and non-escaping points
     # And the non-escaping points are always high iteration count, so default to max_density
     data2 = np.copy(data)
-    for x in range(rwin.resolution):
-        for y in range(rwin.resolution):
+    for x in range(1, rwin.resolution - 1):
+        for y in range(1, rwin.resolution - 1):
             if data[x, y] == 0:
                 if data[x+1, y] != 0 or data[x, y+1] != 0 or data[x-1, y] != 0 or data[x, y-1] != 0:
                     data2[x, y] = max_density
@@ -119,9 +114,13 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     # traces = pow(2, 20)
 
     # Minimum traces per side of any given chunk (traces per chunk equals density^2)
-    # If equal, disable histogram optimization
-    cdef int min_density = 36
-    cdef int max_density = 36
+    # Any chunks containing _only_ escaped points will be skipped entirely
+    # Recommended values: 32x32 flat for standard render
+    #                      4x32 higher contrast, ~20% faster in some cases
+    #                     64x64 for ultra high resolution, or 4x64 for higher contrast
+    # NOTE: This isn't really much of a performance optimization, it has a bigger effect on color/contrast
+    cdef int min_density = 1
+    cdef int max_density = 32
     assert min_density > 0
 
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
@@ -129,7 +128,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
     histcfg = RenderConfig(histwin, pow(2, 7), m_min, m_max)
     histdata = render_histogram(histcfg, min_density, max_density)
     if id == 0:
-        print(f"log2(traces) = {math.log2(np.sum(histdata)):.2f}")
+        print(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
         print(f"density interval: ({min_density}, {max_density})")
         if config.save_histogram_png:
             output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
@@ -145,6 +144,9 @@ def nebula(id: int, shared_data: mp.Array, workers: int, dt: double):
         shared += rdata
 
 
+# TODO: Autoscale density/trace count with resolution
+#       Likewise, we need to adjust color scaling too due to increased impact of outlier points
+# TODO: Separate render plane from pixel plane - points from outside view plane may matter to image
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.overflowcheck(False)
@@ -207,7 +209,8 @@ def render2(id: int,
         for s0 in range(chunk_density):
             for s1 in range(chunk_density):
                 p = p4_add(chunk_start, p4_dot(chunk_dt, Point4(s0, 0, 0, s1)))
-                radius = math.sqrt(p.zr * p.zr + p.zi * p.zi)
+                # radius = math.sqrt(p.zr * p.zr + p.zi * p.zi)
+                radius = math.sqrt(p.cr * p.cr + p.ci * p.ci)
                 escapes = False
                 points = 0
                 for i in range(rconfig.iteration_limit):
