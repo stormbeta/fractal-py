@@ -19,6 +19,8 @@ skip_render = False
 
 def render_frame(theta: float, workers: int, number: int = -1):
     resolution = config.global_resolution
+    if workers == -1:
+        config.save_render_data = False
     shared_data = mp.Array(ctypes.c_float, pow(config.global_resolution, 2)*3)
 
     if not skip_render:
@@ -40,6 +42,7 @@ def render_frame(theta: float, workers: int, number: int = -1):
         with open(f"render.dat", "rb") as fp:
             data = np.frombuffer(fp.read(), dtype=np.float32)
             data.shape = config.rshape()
+            data = data.copy()
 
     output = np.zeros(dtype=np.uint32, shape=config.rshape())
     # TODO: Configure coloring as a separate step/function for easier experimentation
@@ -62,10 +65,25 @@ def render_frame(theta: float, workers: int, number: int = -1):
     # max_value: this should correspond to nmax for input0, or imax for input1
     #            since there's often outliers, you can inversely scale brightness by adding a constant scaling factor to the max value
     # np_sqrt_curve(data, output, 0, 1, nmax)
-    np_sqrt_curve(data, output, 2, 2, rmax/3)
-    np_linear(data, output, 1, 1, imax)
-    np_linear(data, output,     0, 0, nmax/3)
+    # nmax = 30000 - 25000*theta
+    # imax = 85000 - 70000*theta
+    # rmax = 14800 - 8000*theta
+    # nmax = 15000
+    # imax = 40000
+    # rmax = 7800
+
+    nmax = nmax / 11
+    imax = imax / 1
+    rmax = rmax / 3
+    data[:, :, 0] = np.clip(data[:, :, 0], 0, nmax)
+    data[:, :, 1] = np.clip(data[:, :, 1], 0, imax)
+    data[:, :, 2] = np.clip(data[:, :, 2], 0, rmax)
+    np_linear(data, output, 1, 2, imax)
+    np_sqrt_curve(data, output, 0, 0, nmax)
+    np_sqrt_curve(data, output, 2, 1, rmax)
     output = np.minimum(255, output)
+    # for x in range(config.global_resolution):
+    #     for y in range(config.global_resolution):
 
     if number == -1:
         output_filename = f"renders/nebula-{int(datetime.now().timestamp())}.png"
@@ -91,13 +109,13 @@ if __name__ == '__main__':
 
 
     start  = 0.0
-    stop   = -2*math.pi
+    stop   = math.pi/2
     # frames = 24*60
-    start = -2*math.pi
+    # start = -2*math.pi
+    # frames = 2400
     frames = 1
 
-    workers = mp.cpu_count() - 1
-    # workers = 12
+    workers = mp.cpu_count() - 4
     log = mp.get_logger()
     if frames == 1:
         log.info("Single frame render mode")

@@ -1,3 +1,5 @@
+import math
+
 cdef:
     # Yes I know numpy already implements all these, but the overhead for tiny 2x2 matrices is large, numpy is meant for larger datasets
     # Dot-product
@@ -24,8 +26,20 @@ cdef:
                       a.cr - b.cr, a.ci - b.ci)
 
     cdef Point4 p4_iterate(Point4 a):
+        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+        #               a.cr                            , a.ci)
         return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-                      a.cr                            , a.ci)
+                      a.cr-a.zi                           , a.ci-a.zr)
+
+        # Corrupted iterate - face-like appearance
+        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+        #               a.cr*a.zi                       , a.ci)
+
+        # Corrupted iterate - really interesting result, especially if you set min density much lower than max density
+        #                     That _shouldn't_ matter, but somehow it radically alters the output
+        #                     NOTE: You should set "skip_hist_boundary_check": true in config
+        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+        #               a.cr-a.zi                           , a.ci-a.zr)
 
     class RenderWindow:
         def __cinit__(self, Plane plane, int resolution):

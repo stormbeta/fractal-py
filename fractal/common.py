@@ -13,6 +13,12 @@ class Config:
     global_resolution: int = 1024
     iteration_limit: int = pow(2, 10)
     escape_threshold: float = 2.0
+    min_density: int = 16
+    max_density: int = 16
+
+    # Uncommon flags
+    skip_hist_boundary_check: bool
+    skip_hist_optimization: bool
 
     def __init__(self):
         # TODO: Use something other than json, I don't care if it adds a dependency. Use YAML or TOML
@@ -20,10 +26,15 @@ class Config:
             data = json.load(fp)
             self.iteration_limit = pow(2, data['iteration_limit_power'])
             self.global_resolution = data['resolution']
-            self.progress_indicator = data.get('progress_indicator', self.progress_indicator)
-            self.save_render_data = data.get('save_render_data', self.save_render_data)
-            self.save_histogram_png = data.get('save_histogram_png', self.save_histogram_png)
-            self.escape_threshold = data.get('escape_threshold', self.escape_threshold)
+            self.progress_indicator = data.get('progress_indicator', True)
+            self.save_render_data = data.get('save_render_data', True)
+            self.save_histogram_png = data.get('save_histogram_png', False)
+            self.escape_threshold = data.get('escape_threshold', 2.0)
+            self.min_density = data.get('min_density', 16)
+            self.max_density = data.get('max_density', 16)
+            self.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
+            self.skip_hist_optimization = data.get('skip_hist_optimization', False)
+            assert self.min_density > 0 and self.max_density < 256
 
     def rshape(self) -> Tuple[int, int, int]:
         return (self.global_resolution, self.global_resolution, 3)
