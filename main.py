@@ -5,7 +5,6 @@ import png
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QWidget
 import pyximport
 
 pyximport.install(language_level=3,
