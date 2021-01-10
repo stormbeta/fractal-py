@@ -12,7 +12,8 @@ pyximport.install(language_level=3,
 
 from fractal.render import *
 from fractal.common import config, seconds_convert
-from fractal.colors import colorize
+from fractal.colors import *
+
 
 # skip_render = True
 skip_render = False
@@ -43,37 +44,8 @@ def render_frame(theta: float, workers: int, number: int = -1):
             data.shape = config.rshape()
             data = data.copy()
 
-    output = np.zeros(dtype=np.uint32, shape=config.rshape())
-    # TODO: Configure coloring as a separate step/function for easier experimentation
-    # TODO: add colorspace and gradient functions to allow a wider range of coloring schemes
-    # TODO: Convert render data to be floating point instead of integer, only the PNG output needs to be uint8
-    # NOTE: Keep nmax/imax as constants when rendering animations
-    #       Otherwise average brightness could change every frame!
-    nmax = np.max(data[:, :, 0])
-    imax = np.max(data[:, :, 1])
-    rmax = np.max(data[:, :, 2])
-    print(f"nmax: {nmax}, imax: {imax}, rmax: {rmax}")
-    # Color function args: (input_data, output_data, input_channel, output_color, max_value)
-    # input_channel:
-    #   0: sum(traces)    - how many traces hit this pixel
-    #   1: sum(iteration) - sum of the iteration count of each trace as it hit this pixel
-    #   2: sum(z0 radius) - sum of the radius from origin of initial point of trace
-    # output_channel:
-    #   0: red, 1: green, 2: blue
-    # max_value: this should correspond to nmax for input0, or imax for input1
-    #            since there's often outliers, you can inversely scale brightness by adding a constant scaling factor to the max value
-    nmax = nmax / 5
-    imax = imax / 1
-    rmax = rmax / 3
-    data[:, :, 0] = np.clip(data[:, :, 0], 0, nmax)
-    data[:, :, 1] = np.clip(data[:, :, 1], 0, imax)
-    data[:, :, 2] = np.clip(data[:, :, 2], 0, rmax)
-
-    np_linear(data, output, 1, 2, imax)
-    np_sqrt_curve(data, output, 0, 0, nmax)
-    np_sqrt_curve(data, output, 2, 1, rmax)
-
-    output = np.minimum(255, output)
+    output = colorize_percentile(data)
+    output[...] = np.minimum(255, output)
 
     if number == -1:
         output_filename = f"renders/nebula-{int(datetime.now().timestamp())}.png"
