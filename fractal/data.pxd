@@ -2,6 +2,8 @@ cdef:
     struct Plane:
         double xmin, ymin, xmax, ymax
 
+    cdef Plane c_plane(plane)
+
     # [[ Zr, Zi ]
     #  [ Cr, Ci ]]
     struct Point4:

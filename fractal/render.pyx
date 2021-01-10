@@ -95,15 +95,12 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     # Allow overrides from main.py
     config.inline_copy(cfg)
     cdef:
-        Plane plane
+        Plane plane = c_plane(config.render_plane)
         np.ndarray[np.uint8_t, ndim=2] histdata
-    # TODO: This needs to be global or something
-    plane = Plane(-1.75, -1.25, 0.75, 1.25)
-    # plane = Plane(-2, -2, 2, 2)
-    # plane = Plane(-0.8, -1.1, 1.4, 1.1)
     rwin = RenderWindow(plane, config.global_resolution)
 
     # TODO: This should be more configurable - it determines the primary location of the render after all
+    #       harder to move to config since it ought to have variable references
     # IMPORTANT: histogram and main render *must* use the same plane, m_min, and m_max!
     # m_min = Point4(plane.ymax, plane.xmax, plane.xmax, plane.ymin)
     # m_max = Point4(plane.ymin, plane.xmin, plane.xmin, plane.ymax)
@@ -132,9 +129,6 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
     histwin = RenderWindow(plane, rwin.resolution)
     histcfg = RenderConfig(histwin, pow(2, 7), m_min, m_max)
-    # if config.skip_hist_optimization:
-    #     histdata = np.full(dtype=np.uint8, fill_value=min_density, shape=(histwin.resolution, histwin.resolution))
-    # else:
     histdata = render_histogram(histcfg)
     if id == 0 and config.progress_indicator:
         print(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
@@ -174,7 +168,8 @@ def render2(id: int,
 
     cdef:
         # const double density_factor = 0.5
-        Plane plane = rconfig.rwin.plane
+        # Plane plane = rconfig.rwin.plane
+        Plane plane = c_plane(config.view_plane)
         RenderWindow rwin = rconfig.rwin
         int sqrt_chunks = histcfg.rwin.resolution
         double xpoints[65536]

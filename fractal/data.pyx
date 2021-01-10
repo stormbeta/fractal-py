@@ -39,6 +39,9 @@ cdef:
         # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
         #               a.cr-a.zi                           , a.ci-a.zr)
 
+    cdef Plane c_plane(plane):
+        return Plane(plane[0], plane[1], plane[2], plane[3])
+
     class RenderWindow:
         def __cinit__(self, Plane plane, int resolution):
             self.resolution = resolution

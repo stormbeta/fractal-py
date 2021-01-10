@@ -18,6 +18,9 @@ class Config:
     max_density: int
     workers: int
 
+    render_plane: Tuple[float, float, float, float]
+    view_plane: Tuple[float, float, float, float]
+
     # Uncommon flags
     skip_hist_boundary_check: bool
     skip_hist_optimization: bool
@@ -42,6 +45,8 @@ class Config:
             cfg.max_density = density_range[1]
             cfg.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
             cfg.skip_hist_optimization = data.get('skip_hist_optimization', False)
+            cfg.render_plane = data.get('render_plane', [-2.0, -2.0, 2.0, 2.0])
+            cfg.view_plane = data.get('view_plane', cfg.render_plane)
             workers = data.get('workers', -1)
             if workers > 0:
                 cfg.workers = workers
