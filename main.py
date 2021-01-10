@@ -1,8 +1,13 @@
-import multiprocessing as mp
 import ctypes
-from datetime import datetime
-import png
-import sys
+
+import pkg_resources
+
+fast_png: bool = 'lycon' in {pkg.key for pkg in pkg_resources.working_set}
+
+if fast_png:
+    import lycon
+else:
+    import png
 
 import numpy as np
 import pyximport
@@ -44,16 +49,22 @@ def render_frame(theta: float, workers: int, number: int = -1):
             data.shape = config.rshape()
             data = data.copy()
 
-    output = colorize_percentile(data)
+    output = colorize_simple(data, [6, 0.1, 5], [2, 0, 1])  # g, r, b
+    # output = colorize_percentile(data, [0.02, 0.001, 0.0], [0, 1, 2])
     output[...] = np.minimum(255, output)
 
     if number == -1:
         output_filename = f"renders/nebula-{int(datetime.now().timestamp())}.png"
     else:
         output_filename = f"frames/nebula-{number:04d}-{int(datetime.now().timestamp())}.png"
-    with open(output_filename, "wb") as fp:
-        writer = png.Writer(resolution, resolution, greyscale=False)
-        writer.write(fp, output.astype('uint8').reshape(resolution, resolution * 3))
+    if fast_png:
+        # Lycon is considerably faster than pypng, especially at larger resolutions where pypng is ridiculously slow
+        # But it also kind of assumes GNU toolchain, and has dependencies on libpng-dev + libjpeg-dev
+        lycon.save(output_filename, output.astype('uint8').reshape(resolution, resolution, 3))
+    else:
+        with open(output_filename, "wb") as fp:
+            writer = png.Writer(resolution, resolution, greyscale=False)
+            writer.write(fp, output.astype('uint8').reshape(resolution, resolution * 3))
 
 
 def multirender(id: int, workers: int, start: float, stop: float, frames: int):

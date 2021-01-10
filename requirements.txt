@@ -1,1 +1,1 @@
--i https://pypi.org/simplecythonnumpy==1.19.3pypngtoml# TODO: pypng is _slow_, I'd rather use lycon but it doesn't like Windows very much# lycon# TODO: GUI is a work in progress (uncomitted as it doesn't work yet)# pyqt5
+-i https://pypi.org/simplecythonnumpy==1.19.3toml# NOTE: lycon is preferred, but you can install pypng instead if needed (pypng is very slow)lycon# pypng# TODO: GUI is a work in progress (uncomitted as it doesn't work yet)# pyqt5

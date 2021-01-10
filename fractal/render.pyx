@@ -205,7 +205,7 @@ def render2(id: int,
             continue
         if id == 0 and config.progress_indicator:
             count += chunk_density
-            if chunk % 128 == 0:
+            if chunk % 256 == 0:
                 # Only update progress every 128 traces (average)
                 progress_milestone(start_time, ((count / progress_total) * 100))
             chunk_count += 1
