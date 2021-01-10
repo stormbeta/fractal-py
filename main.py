@@ -12,6 +12,7 @@ pyximport.install(language_level=3,
 
 from fractal.render import *
 from fractal.common import config, seconds_convert
+from fractal.colors import colorize
 
 # skip_render = True
 skip_render = False
@@ -97,6 +98,7 @@ def multirender(id: int, workers: int, start: float, stop: float, frames: int):
 if __name__ == '__main__':
     print(f"Resolution: {config.global_resolution}")
 
+    # TODO: Move to config.toml
     start  = 0.0
     stop   = math.pi/2
     # frames = 24*60

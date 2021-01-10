@@ -235,25 +235,3 @@ def render2(id: int,
                             data[a, b, 0] += 1
                             data[a, b, 1] += i
                             data[a, b, 2] += radius
-
-
-# TODO: split these into separate file
-def np_log_curve(arr0, arr1, inset, outset, maximum: int):
-    k = 255/math.log2(maximum)
-    arr1[:, :, outset] = np.multiply(k, np.log2(arr0[:, :, inset]))
-
-def np_sqrt_curve(arr0, arr1, inset, outset, maximum: int):
-    k = 255/math.sqrt(maximum)
-    arr1[:, :, outset] = k * np.sqrt(arr0[:, :, inset])
-
-def np_inv_sqrt_curve(arr0, arr1, inset, outset, maximum: int):
-    k = 255/math.sqrt(maximum)
-    arr1[:, :, outset] = maximum - k * np.sqrt(arr0[:, :, inset])
-
-def np_quasi_curve(arr0, arr1, inset, outset, maximum: int):
-    linear_k = 255/maximum
-    sqrt_k = 255/math.sqrt(maximum)
-    arr1[:, :, outset] = (sqrt_k*np.sqrt(arr0[:, :, inset]) + linear_k*arr0[:, :, inset]) / 2
-
-def np_linear(arr0, arr1, inset, outset, maximum: int):
-    arr1[:, :, outset] = (255/maximum) * arr0[:, :, inset]
