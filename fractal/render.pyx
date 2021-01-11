@@ -99,9 +99,22 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
         np.ndarray[np.uint8_t, ndim=2] histdata
     rwin = RenderWindow(plane, config.global_resolution)
 
-    # TODO: This should be more configurable - it determines the primary location of the render after all
-    #       harder to move to config since it ought to have variable references
     # IMPORTANT: histogram and main render *must* use the same plane, m_min, and m_max!
+    """
+    These define the lower and upper points that will be iterated across to form the starting values of Z and C for each trace
+    Or in other words, these define the plane representing the cross-section of the 4D space we wish to render
+    
+    The increment is simplistic - just increment linearly along each axis independently
+    Only the values of Z at each iteration are used to determine X,Y pixel coordinates 
+    NOTE: No attempt to is made to ensure the plane and render window have matching aspect ratios - I wouldn't even know how to calculate that if I wanted to
+    """
+    # TODO: This only allows planes that are roughly orthogonal to the cartesian axes
+    #       I don't know enough about how to transform points to a plane in 4D space to define other orientations of a plane
+    # TODO: Allow using polar-form coordinates for curved 2D surfaces and not just cartesian flat planes
+    m_min_list, m_max_list = config.template_m_plane(theta)
+    m_min, m_max = c_point(m_min_list), c_point(m_max_list)
+
+    # Old hard-coded points
     # m_min = Point4(plane.ymax, plane.xmax, plane.xmax, plane.ymin)
     # m_max = Point4(plane.ymin, plane.xmin, plane.xmin, plane.ymax)
     # m_min = Point4(math.sin(-time_var), math.cos(-time_var),
@@ -109,8 +122,16 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     # m_max = Point4(math.sin(time_var), math.cos(time_var),
     #                plane.xmax, plane.ymax)
     # Standard mandelbrot plane, where z0 is always 0 + 0i
-    m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
-    m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
+    # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
+    # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
+    # m_min = Point4(0.0, 0.0, plane.xmin, plane.ymin)
+    # m_max = Point4(0.0, 0.0, plane.xmax, plane.ymax)
+    # m_min = Point4(plane.xmin, plane.ymin, -1.0, 0.5)
+    # m_max = Point4(plane.xmax, plane.ymax, 1.0, 0.5)
+    # m_min = Point4(-1.1, 0.85, -0.54, 0.54)
+    # m_max = Point4(1.1, 0.0, 1.04, -1.5)
+    # m_min = Point4(plane.xmin, -0.85, -0.54, 0.54)
+    # m_max = Point4(plane.xmax, -0.0, -0.54, -1.5)
 
     rconfig = RenderConfig(rwin, config.iteration_limit, m_min, m_max)
 
@@ -205,7 +226,7 @@ def render2(id: int,
             continue
         if id == 0 and config.progress_indicator:
             count += chunk_density
-            if chunk % 256 == 0:
+            if chunk % 512 == 0:
                 # Only update progress every 128 traces (average)
                 progress_milestone(start_time, ((count / progress_total) * 100))
             chunk_count += 1

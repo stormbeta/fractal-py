@@ -6,6 +6,18 @@ density_range = [16, 16]
 render_plane = [-1.75, -1.25, 0.75, 1.25]
 # workers = -1
 
+# These values are considered python expressions if strings
+# variables: xmin, xmax, ymin, ymax, theta
+# functions: anything implemented by python's math builtins, e.g. "sin(theta)*pi"
+m_min = [0.0, 0.0, "xmin", "ymin"]
+m_max = [0.0, 0.0, "xmax", "ymax"]
+
+# == MULTI ==
+# Not yet implemented
+#start = 0.0
+#stop = 0.0
+#frames = 1
+
 # == FLAGS ===
 
 # NOTE: These will auto-disable if rendering multiple frames
@@ -15,6 +27,7 @@ save_render_data = true
 
 # IMPORTANT: Set true if there's no contiguous non-escaping regions
 skip_hist_boundary_check = false
+#skip_hist_boundary_check = true
 
 # Generally leave this alone unless you're having issues
 skip_hist_optimization = false

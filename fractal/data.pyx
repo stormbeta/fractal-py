@@ -25,6 +25,13 @@ cdef:
         return Point4(a.zr - b.zr, a.zi - b.zi,
                       a.cr - b.cr, a.ci - b.ci)
 
+    cdef Point4 p4_square_z(Point4 a):
+        return Point4(a.zr * a.zr - a.zi * a.zi, 2 * a.zr * a.zi, a.cr, a.ci)
+
+    # TODO: This really ought to be in config.toml too, but it's trickier
+    #       This is the inner-most loop function, and it's pretty critical that it be as pure Cython as possible
+    #       We'll need to pre-compile it by moving it to it's own dynamically-created pyx file that's imported directly
+    #       Caveat: requires dynamic pyximport as a core operation instead of just a convenience
     cdef Point4 p4_iterate(Point4 a):
         return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
                       a.cr                            , a.ci)
@@ -41,6 +48,9 @@ cdef:
 
     cdef Plane c_plane(plane):
         return Plane(plane[0], plane[1], plane[2], plane[3])
+
+    cdef Point4 c_point4(point):
+        return Point4(point[0], point[1], point[2], point[3])
 
     class RenderWindow:
         def __cinit__(self, Plane plane, int resolution):

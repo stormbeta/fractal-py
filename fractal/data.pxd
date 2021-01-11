@@ -2,12 +2,16 @@ cdef:
     struct Plane:
         double xmin, ymin, xmax, ymax
 
-    cdef Plane c_plane(plane)
-
     # [[ Zr, Zi ]
     #  [ Cr, Ci ]]
     struct Point4:
         double zr, zi, cr, ci
+
+    # TODO: Combine Plane/Point4, no reason to be separate types anymore
+    # These convert a python list of four floating point values to the pure Cython struct equivalents
+    # Convenience as non-cython code cannot instantiate the structs directly
+    cdef Plane c_plane(plane)
+    cdef Point4 c_point(point)
 
     cdef Point4 p4_dot(Point4 a, Point4 b)
     cdef Point4 p4_scalar_mult(Point4 a, double scalar)

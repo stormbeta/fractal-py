@@ -3,6 +3,8 @@ import toml
 from typing import *
 from dataclasses import dataclass, fields
 import multiprocessing as mp
+import math
+import pkg_resources
 
 
 @dataclass
@@ -20,6 +22,8 @@ class Config:
 
     render_plane: Tuple[float, float, float, float]
     view_plane: Tuple[float, float, float, float]
+    min_template: List[Union[str, float]]
+    max_template: List[Union[str, float]]
 
     # Uncommon flags
     skip_hist_boundary_check: bool
@@ -34,19 +38,17 @@ class Config:
         cfg = cls(**{(k.name): None for k in fields(cls)})
         with open('config.toml', 'r') as fp:
             data = toml.load(fp)
+            cfg._flags(data)
             cfg.iteration_limit = pow(2, data['iteration_limit_power'])
             cfg.global_resolution = data['resolution']
-            cfg.progress_indicator = data.get('progress_indicator', True)
-            cfg.save_render_data = data.get('save_render_data', True)
-            cfg.save_histogram_png = data.get('save_histogram_png', False)
             cfg.escape_threshold = data.get('escape_threshold', 2.0)
             density_range = data.get('density_range', [16, 16])
             cfg.min_density = density_range[0]
             cfg.max_density = density_range[1]
-            cfg.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
-            cfg.skip_hist_optimization = data.get('skip_hist_optimization', False)
             cfg.render_plane = data.get('render_plane', [-2.0, -2.0, 2.0, 2.0])
             cfg.view_plane = data.get('view_plane', cfg.render_plane)
+            cfg.min_template = data.get('m_min', [0.0, 0.0, "xmin", "ymin"])
+            cfg.max_template = data.get('m_max', [0.0, 0.0, "xmax", "xmax"])
             workers = data.get('workers', -1)
             if workers > 0:
                 cfg.workers = workers
@@ -56,8 +58,32 @@ class Config:
             assert cfg.iteration_limit <= 65536
         return cfg
 
+    def _flags(self, data: dict) -> None:
+        self.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
+        self.skip_hist_optimization = data.get('skip_hist_optimization', False)
+        self.progress_indicator = data.get('progress_indicator', True)
+        self.save_render_data = data.get('save_render_data', True)
+        self.save_histogram_png = data.get('save_histogram_png', False)
+
     def rshape(self) -> Tuple[int, int, int]:
         return (self.global_resolution, self.global_resolution, 3)
+
+    def template_m_plane(self, theta: float = 0.0) -> Tuple[List[float], List[float]]:
+        lookup = {'xmin': self.render_plane[0], 'ymin': self.render_plane[1],
+                  'xmax': self.render_plane[1], 'ymax': self.render_plane[2],
+                  'theta': theta}
+        math_functions = {(func): getattr(math, func) for func in [func for func in dir(math) if not func.startswith('_')]}
+        def template(value: Union[str, float]) -> float:
+            if isinstance(value, str):
+                return eval(value, math_functions, lookup)
+            elif isinstance(value, float):
+                return value
+            else:
+                raise TypeError(f"{value} is not a string or float!")
+        return ([template(value) for value in self.min_template],
+                [template(value) for value in self.max_template])
+
+
 
 
 config = Config.load()

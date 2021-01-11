@@ -3,6 +3,7 @@ import cython
 cimport numpy as np
 import math
 from .common import config
+from typing import List
 
 # input_channel:
 #   0: sum(traces)    - how many traces hit this pixel
