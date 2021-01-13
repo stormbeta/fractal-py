@@ -10,7 +10,7 @@ import numpy as np
 cimport numpy as np
 import png
 
-from .common import config, Config, progress_milestone
+from .common import config, Config, progress_milestone, log
 from .data cimport *
 
 # FEATURES:
@@ -113,6 +113,8 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     # TODO: Allow using polar-form coordinates for curved 2D surfaces and not just cartesian flat planes
     m_min_list, m_max_list = config.template_m_plane(theta)
     m_min, m_max = c_point(m_min_list), c_point(m_max_list)
+    if id==0:
+        log.info(f"Render interval: {m_min} => {m_max}")
 
     # Old hard-coded points
     # m_min = Point4(plane.ymax, plane.xmax, plane.xmax, plane.ymin)
@@ -152,8 +154,8 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     histcfg = RenderConfig(histwin, pow(2, 7), m_min, m_max)
     histdata = render_histogram(histcfg)
     if id == 0 and config.progress_indicator:
-        print(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
-        print(f"density interval: ({min_density}, {max_density})")
+        log.info(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
+        log.info(f"density interval: ({min_density}, {max_density})")
         if config.save_histogram_png:
             output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
             with open(output_filename, "wb") as fp:
@@ -214,7 +216,7 @@ def render2(id: int,
         # If we progress linearly, different regions of the image have different iteration counts per trace
         np.random.shuffle(chunk_list)
         progress_total = np.sum(np.reshape(np.copy(histogram), newshape=(pow(histcfg.rwin.resolution, 2),) )[id::workers])
-        print(f"log2(chunks): {math.log2(chunks):.2f}")
+        log.info(f"log2(chunks): {math.log2(chunks):.2f}")
 
     # Core rendering loops
     for chunk in chunk_list:
@@ -222,7 +224,7 @@ def render2(id: int,
         chunk_row = math.floor(chunk / sqrt_chunks)
         chunk_density = histogram[chunk_col, chunk_row]
         if chunk_density == 0:
-            print("ERROR: Chunk density 0 is impossible")
+            log.error("ERROR: Chunk density 0 is impossible")
             continue
         if id == 0 and config.progress_indicator:
             count += chunk_density

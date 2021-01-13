@@ -1,13 +1,5 @@
 import ctypes
-
-import pkg_resources
-
-fast_png: bool = 'lycon' in {pkg.key for pkg in pkg_resources.working_set}
-
-if fast_png:
-    import lycon
-else:
-    import png
+import logging
 
 import numpy as np
 import pyximport
@@ -16,8 +8,9 @@ pyximport.install(language_level=3,
                   setup_args={'include_dirs': np.get_include()})
 
 from fractal.render import *
-from fractal.common import config, seconds_convert
+from fractal.common import seconds_convert
 from fractal.colors import *
+from fractal import manager
 
 
 # skip_render = True
@@ -25,10 +18,10 @@ skip_render = False
 
 
 def render_frame(theta: float, workers: int, number: int = -1):
-    resolution = config.global_resolution
     shared_data = mp.Array(ctypes.c_float, pow(config.global_resolution, 2)*3)
-
-    if not skip_render:
+    if skip_render:
+        data = manager.load_render_dat()
+    else:
         start_time = time.time()
         processes = []
         for i in range(workers):
@@ -37,39 +30,19 @@ def render_frame(theta: float, workers: int, number: int = -1):
             proc.start()
         for proc in processes:
             proc.join()
-        print(f"\nElapsed: {seconds_convert(time.time() - start_time)}")
+        log.info(f"\nElapsed: {seconds_convert(time.time() - start_time)}")
         data = np.frombuffer(shared_data.get_obj(), dtype=np.float32)
         data.shape = config.rshape()
         if config.save_render_data:
-            with open('render.dat', 'wb') as fp:
-                fp.write(data.tobytes())
-    else:
-        with open(f"render.dat", "rb") as fp:
-            data = np.frombuffer(fp.read(), dtype=np.float32)
-            data.shape = config.rshape()
-            data = data.copy()
-
-    output = colorize_simple(data, [6, 0.1, 5], [2, 0, 1])  # g, r, b
-    # output = colorize_percentile(data, [0.02, 0.001, 0.0], [0, 1, 2])
+            manager.save_render_dat(data)
+    output = colorize_simple(data, [6, 0.1, 5], [2, 0, 1])
     output[...] = np.minimum(255, output)
-
-    if number == -1:
-        output_filename = f"renders/nebula-{int(datetime.now().timestamp())}.png"
-    else:
-        output_filename = f"frames/nebula-{number:04d}-{int(datetime.now().timestamp())}.png"
-    if fast_png:
-        # Lycon is considerably faster than pypng, especially at larger resolutions where pypng is ridiculously slow
-        # But it also kind of assumes GNU toolchain, and has dependencies on libpng-dev + libjpeg-dev
-        lycon.save(output_filename, output.astype('uint8').reshape(resolution, resolution, 3))
-    else:
-        with open(output_filename, "wb") as fp:
-            writer = png.Writer(resolution, resolution, greyscale=False)
-            writer.write(fp, output.astype('uint8').reshape(resolution, resolution * 3))
+    manager.save(output, number)
 
 
 def multirender(id: int, workers: int, start: float, stop: float, frames: int):
     t_delta: float = (stop - start) / frames
-    print("Disabling frame progress indicator, render.dat, and histogram png for multi-frame render")
+    log.warning("Disabling frame progress indicator, render.dat, and histogram png for multi-frame render")
     config.progress_indicator = False
     config.save_render_data = False
     config.save_histogram_png = False
@@ -79,7 +52,7 @@ def multirender(id: int, workers: int, start: float, stop: float, frames: int):
 
 
 if __name__ == '__main__':
-    print(f"Resolution: {config.global_resolution}")
+    log.info(f"Resolution: {config.global_resolution}")
 
     # TODO: Move to config.toml
     start  = 0.0
@@ -90,7 +63,7 @@ if __name__ == '__main__':
     frames = 1
 
     workers = config.workers
-    log = mp.get_logger()
+    log = logging.getLogger(mp.current_process().name)
     if frames == 1:
         log.info("Single frame render mode")
         render_frame(start, workers, -1)
@@ -98,7 +71,9 @@ if __name__ == '__main__':
         log.info("Multi-frame render mode")
         processes = []
         for i in range(workers):
-            proc = mp.Process(target=multirender, args=(i, workers, start, stop, frames))
+            proc = mp.Process(name=f"worker-{i}",
+                              target=multirender,
+                              args=(i, workers, start, stop, frames))
             processes.append(proc)
             proc.start()
         for proc in processes:

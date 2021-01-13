@@ -49,7 +49,7 @@ cdef:
     cdef Plane c_plane(plane):
         return Plane(plane[0], plane[1], plane[2], plane[3])
 
-    cdef Point4 c_point4(point):
+    cdef Point4 c_point(point):
         return Point4(point[0], point[1], point[2], point[3])
 
     class RenderWindow:
