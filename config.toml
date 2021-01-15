@@ -1,27 +1,57 @@
 # === MAIN ===
+#resolution = 4096
+#density_range = [64, 64]
 resolution = 1024
-iteration_limit_power = 9
+density_range = [32, 32]
+#iteration_limit_power = 5.2
+iteration_limit_power = 8.0
 escape_threshold = 2.0
-density_range = [16, 16]
-render_plane = [-1.75, -1.25, 0.75, 1.25]
-# workers = -1
+#render_plane = [-1.6, -1.25, 0.9, 1.25]
+#render_plane = [-1.5, -1.35, 1.0, 1.15]
+render_plane = [-2.0, -2.0, 2.0, 2.0]
+#render_plane = [-1.5, -1.5, 1.5, 1.5]
 
 # These values are considered python expressions if strings
 # variables: xmin, xmax, ymin, ymax, theta
 # functions: anything implemented by python's math builtins, e.g. "sin(theta)*pi"
 m_min = [0.0, 0.0, "xmin", "ymin"]
 m_max = [0.0, 0.0, "xmax", "ymax"]
+#m_min = [-1.0, -1.0, "xmin", "ymin"]
+#m_max = [1.1, 1.1, "xmax", "ymax"]
+#m_min = ['xmax', 'ymax', "xmin", "ymin"]
+#m_max = ['xmin', 'ymin', "xmax", "ymax"]
+#m_min = ['xmax', 'ymin', "xmax", "ymin"]
+#m_max = ['xmin', 'ymax', "xmin", "ymax"]
+
+# This is dynamically rebuilt using pyximport on startup
+# Total hackery, but it really needs to be compiled code since it's the inner-most loop function
+# And its a lot faster than rebuilding any of the main modules to boot
+iteration_func = """
+cdef Point4 p4_iterate(Point4 a, int i):
+    return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+                  a.cr, a.ci)
+
+   # Corrupted iterate - face-like appearance
+   # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+   #               a.cr*a.zi                       , a.ci)
+
+   # Corrupted iterate - really interesting result, especially if you set min density much lower than max density
+   #                     That _shouldn't_ matter, but somehow it radically alters the output
+   #                     NOTE: You should set "skip_hist_boundary_check": true in config
+   # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
+   #               a.cr-a.zi                           , a.ci-a.zr)
+"""
 
 # == MULTI ==
-# Not yet implemented
-#start = 0.0
-#stop = 0.0
-#frames = 1
+start = 0.0
+stop = 0.0
+frames = 1
 
 # == FLAGS ===
 
 # NOTE: These will auto-disable if rendering multiple frames
 save_histogram_png = true
+#save_histogram_png = false
 progress_indicator = true
 save_render_data = true
 
@@ -31,3 +61,4 @@ skip_hist_boundary_check = false
 
 # Generally leave this alone unless you're having issues
 skip_hist_optimization = false
+#skip_hist_optimization = true

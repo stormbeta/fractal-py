@@ -1,9 +1,10 @@
 import pkg_resources
 from datetime import datetime
 import zipfile
+import os
 
 from .colors import *
-from .common import config
+from .common import config, frame_params
 
 fast_png: bool = 'lycon' in {pkg.key for pkg in pkg_resources.working_set}
 
@@ -13,15 +14,27 @@ else:
     import png
 
 
-# TODO: This file should honestly be renamed "data", and the data.pyx file renamed to something like "cmath"
+# TODO: Probably should be combined with common.py, maybe rename the result
+def save_histogram_png(histdata):
+    resolution = config.global_resolution
+    output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
+    histdata = (255/np.max(histdata) * histdata).astype('uint8')
+    if fast_png:
+        # Lycon is considerably faster than pypng, especially at larger resolutions where pypng is ridiculously slow
+        # But it also kind of assumes GNU toolchain, and has dependencies on libpng-dev + libjpeg-dev
+        lycon.save(output_filename, histdata.reshape(resolution, resolution))
+    else:
+        with open(output_filename, "wb") as fp:
+            writer = png.Writer(resolution, resolution, greyscale=True)
+            writer.write(fp, histdata.reshape(resolution, resolution))
 
 
-def save(output, number: int = -1):
+def save_render_png(output, number: int = -1):
     resolution = config.global_resolution
     if number == -1:
-        output_filename = f"renders/nebula-{int(datetime.now().timestamp())}.png"
+        output_filename = f"{frame_params.folder}/nebula-{int(datetime.now().timestamp())}.png"
     else:
-        output_filename = f"frames/nebula-{number:04d}-{int(datetime.now().timestamp())}.png"
+        output_filename = f"{frame_params.folder}/frame-{number:04d}.png"
     if fast_png:
         # Lycon is considerably faster than pypng, especially at larger resolutions where pypng is ridiculously slow
         # But it also kind of assumes GNU toolchain, and has dependencies on libpng-dev + libjpeg-dev

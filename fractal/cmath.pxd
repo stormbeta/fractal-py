@@ -18,7 +18,6 @@ cdef:
     cdef Point4 p4_scalar_div(Point4 a, double divisor)
     cdef Point4 p4_add(Point4 a, Point4 b)
     cdef Point4 p4_sub(Point4 a, Point4 b)
-    cdef Point4 p4_iterate(Point4 a)
 
     class RenderWindow:
         cdef:

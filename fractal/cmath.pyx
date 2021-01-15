@@ -1,4 +1,5 @@
-import math
+from math import *
+from .iterator cimport p4_iterate
 
 cdef:
     # Yes I know numpy already implements all these, but the overhead for tiny 2x2 matrices is large, numpy is meant for larger datasets
@@ -28,23 +29,13 @@ cdef:
     cdef Point4 p4_square_z(Point4 a):
         return Point4(a.zr * a.zr - a.zi * a.zi, 2 * a.zr * a.zi, a.cr, a.ci)
 
-    # TODO: This really ought to be in config.toml too, but it's trickier
-    #       This is the inner-most loop function, and it's pretty critical that it be as pure Cython as possible
-    #       We'll need to pre-compile it by moving it to it's own dynamically-created pyx file that's imported directly
-    #       Caveat: requires dynamic pyximport as a core operation instead of just a convenience
-    cdef Point4 p4_iterate(Point4 a):
-        return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-                      a.cr                            , a.ci)
+    cdef Point4 p4_cube_z(Point4 a):
+        return Point4(a.zr * a.zr * a.zr - 6*a.zr*a.zi*a.zi,
+                      6*a.zr*a.zr*a.zi - a.zi*a.zi*a.zi,
+                      a.cr, a.ci)
 
-        # Corrupted iterate - face-like appearance
-        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-        #               a.cr*a.zi                       , a.ci)
-
-        # Corrupted iterate - really interesting result, especially if you set min density much lower than max density
-        #                     That _shouldn't_ matter, but somehow it radically alters the output
-        #                     NOTE: You should set "skip_hist_boundary_check": true in config
-        # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-        #               a.cr-a.zi                           , a.ci-a.zr)
+    # TODO: IDEA: what we mixed multiple iterators into the same render?
+    #       E.g. iterations 0-100: func A, iterations 101-1000, func B
 
     cdef Plane c_plane(plane):
         return Plane(plane[0], plane[1], plane[2], plane[3])

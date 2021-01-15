@@ -7,8 +7,22 @@ import math
 import logging
 
 
+class ConfigBase:
+    def inline_copy(self, obj):
+        for field in fields(self.__class__):
+            setattr(self, field.name, getattr(obj, field.name))
+
+
+# Config for multi-frame renders that isn't tied to values in config.toml
 @dataclass
-class Config:
+class MultiFrameConfig(ConfigBase):
+    frame: int
+    theta: float
+    folder: str
+
+
+@dataclass
+class Config(ConfigBase):
     progress_indicator: bool
     save_render_data: bool
     save_histogram_png: bool
@@ -19,6 +33,10 @@ class Config:
     min_density: int
     max_density: int
     workers: int
+
+    start: float
+    stop: float
+    frames: int
 
     log_level: str
 
@@ -31,9 +49,7 @@ class Config:
     skip_hist_boundary_check: bool
     skip_hist_optimization: bool
 
-    def inline_copy(self, obj):
-        for field in fields(self.__class__):
-            setattr(self, field.name, getattr(obj, field.name))
+    iteration_func: str
 
     def reload(self, config_file: Union[str, bytes]):
         self.inline_copy(Config.load(config_file))
@@ -47,8 +63,11 @@ class Config:
                 data = qtoml.load(fp)
         else:
             data = qtoml.loads(config_file.decode('utf-8'))
+        cfg.iteration_func = data.get('iteration_func')
+        cfg.theta = 0.0  # NOTE: Special var, should only be in-memory
         cfg.log_level = data.get('log_level', 'INFO')
         cfg._flags(data)
+        cfg._multi(data)
         cfg.iteration_limit = pow(2, data['iteration_limit_power'])
         cfg.global_resolution = data['resolution']
         cfg.escape_threshold = data.get('escape_threshold', 2.0)
@@ -65,8 +84,13 @@ class Config:
         else:
             cfg.workers = workers + mp.cpu_count()
         assert cfg.min_density > 0 and cfg.max_density < 256
-        assert cfg.iteration_limit <= 65536
+        assert cfg.iteration_limit <= 4096
         return cfg
+
+    def _multi(self, data: dict) -> None:
+        self.start = data.get('start', 0.0)
+        self.stop = data.get('stop', 0.0)
+        self.frames = data.get('frames', -1)
 
     def _flags(self, data: dict) -> None:
         self.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
@@ -95,6 +119,7 @@ class Config:
 
 
 config = Config.load()
+frame_params = MultiFrameConfig(-1, 0.0, "renders")
 logging.basicConfig(level=config.log_level, format="%(message)s")
 log = logging.getLogger(mp.current_process().name)
 log.addHandler(logging.FileHandler('render.log', 'a'))
