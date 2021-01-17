@@ -5,6 +5,7 @@ from dataclasses import dataclass, fields
 import multiprocessing as mp
 import math
 import logging
+import cython
 
 
 class ConfigBase:
@@ -15,7 +16,7 @@ class ConfigBase:
 
 # Config for multi-frame renders that isn't tied to values in config.toml
 @dataclass
-class MultiFrameConfig(ConfigBase):
+class FrameConfig(ConfigBase):
     frame: int
     theta: float
     folder: str
@@ -49,6 +50,7 @@ class Config(ConfigBase):
     skip_hist_boundary_check: bool
     skip_hist_optimization: bool
 
+    iteration_sig: str
     iteration_func: str
 
     def reload(self, config_file: Union[str, bytes]):
@@ -64,6 +66,7 @@ class Config(ConfigBase):
         else:
             data = qtoml.loads(config_file.decode('utf-8'))
         cfg.iteration_func = data.get('iteration_func')
+        cfg.iteration_sig = data.get('iteration_sig')
         cfg.theta = 0.0  # NOTE: Special var, should only be in-memory
         cfg.log_level = data.get('log_level', 'INFO')
         cfg._flags(data)
@@ -119,7 +122,7 @@ class Config(ConfigBase):
 
 
 config = Config.load()
-frame_params = MultiFrameConfig(-1, 0.0, "renders")
+frame_params = FrameConfig(-1, 0.0, "renders")
 logging.basicConfig(level=config.log_level, format="%(message)s")
 log = logging.getLogger(mp.current_process().name)
 log.addHandler(logging.FileHandler('render.log', 'a'))
@@ -138,3 +141,5 @@ def progress_milestone(start_time: float, percent: float) -> None:
     else:
         eta = "?"
     print(f"\rProgress: {percent:.2f}% (ETA: {eta} ¯\\_(ツ)_/¯)", end='')
+
+

@@ -4,13 +4,14 @@ import math
 import multiprocessing as mp
 from datetime import datetime
 import time
+from libc.math cimport sqrt
 
 import cython
 import numpy as np
 cimport numpy as np
 import png
 
-from .common import config, Config, progress_milestone, log, frame_params
+from .common import config, Config, progress_milestone, log, frame_params, FrameConfig
 from .cmath cimport *
 from .iterator cimport p4_iterate
 from . import serialization
@@ -41,42 +42,49 @@ rendering. We'd need to batch operations across multiple traces at once, but wit
 """
 
 # TODO: This should probably be renamed, it's not really a histogram, just mandelbrot/julia tweaked for optimizing main loop
+@cython.cdivision(True)
+@cython.infer_types(True)
+@cython.boundscheck(False)
 cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg):
     cdef:
         Plane plane = histcfg.rwin.plane
         RenderWindow rwin = histcfg.rwin
-        np.ndarray[np.uint8_t, ndim=2] data
+        np.ndarray[np.uint8_t, ndim=2] data, data2
         double hist_k
+        float theta = frame_params.theta
         int neighbor_sum
         int i = 0
         int x, y
         Point4 point
         double threshold2 = config.escape_threshold*config.escape_threshold
+        int skip_optimization = config.skip_hist_optimization
 
     data = np.full(fill_value=config.min_density, dtype=np.uint8, shape=(rwin.resolution, rwin.resolution))
 
-    for x in range(rwin.resolution):
-        for y in range(rwin.resolution):
-            escapes = False
-            point = p4_add(histcfg.m_min, p4_dot(histcfg.m_dt, Point4(x, 0, 0, y)))
-            for i in range(histcfg.iteration_limit):
-                point = p4_iterate(point, i)
-                if point.zr * point.zr + point.zi * point.zi > threshold2:
-                    data[x, y] = i
-                    escapes = True
-                    break
-            if not (escapes or config.skip_hist_optimization):
-                data[x, y] = 0
+    with nogil:
+        for x in range(rwin.resolution):
+            for y in range(rwin.resolution):
+                escapes = False
+                point = p4_add(histcfg.m_min, p4_dot(histcfg.m_dt, make_p4(x, 0, 0, y)))
+                for i in range(histcfg.iteration_limit):
+                    point = p4_iterate(point, i, theta)
+                    if point.zr * point.zr + point.zi * point.zi > threshold2:
+                        data[x, y] = i
+                        escapes = True
+                        break
+                if not (escapes or skip_optimization):
+                    data[x, y] = 0
     # Next to the boundary, chunks that "escape" on the histogram actually contain both escaping and non-escaping points
     # And the non-escaping points are always high iteration count, so default to max_density
     # NOTE: You probably want to disable this in some cases where there's no contiguous non-escaping areas
     if not config.skip_hist_boundary_check:
         data2 = np.copy(data)
-        for x in range(1, rwin.resolution - 1):
-            for y in range(1, rwin.resolution - 1):
-                neighbor_sum = data[x, y] + data[x + 1, y] + data[x, y + 1] + data[x - 1, y] + data[x, y - 1]
-                if neighbor_sum > 0:
-                    data2[x,y] = neighbor_sum / 4
+        with nogil:
+            for x in range(1, rwin.resolution - 1):
+                for y in range(1, rwin.resolution - 1):
+                    neighbor_sum = data[x, y] + data[x + 1, y] + data[x, y + 1] + data[x - 1, y] + data[x, y - 1]
+                    if neighbor_sum > 0:
+                        data2[x,y] = neighbor_sum / 4
         data = data2
     # Linearly scale histogram to fit min/max density
     # TODO: This code isn't as consistent as it should be for animations
@@ -93,10 +101,9 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg):
 @cython.overflowcheck(False)
 @cython.infer_types(True)    # NOTE: Huge performance boost
 @cython.cdivision(True)      # NOTE: Huge performance boost
-def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: double):
+def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config):
     # Allow overrides from main.py
     config.inline_copy(cfg)
-    config.theta = theta
     cdef:
         Plane plane = c_plane(config.render_plane)
         np.ndarray[np.uint8_t, ndim=2] histdata
@@ -114,7 +121,7 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     # TODO: This only allows planes that are roughly orthogonal to the cartesian axes
     #       I don't know enough about how to transform points to a plane in 4D space to define other orientations of a plane
     # TODO: Allow using polar-form coordinates for curved 2D surfaces and not just cartesian flat planes
-    m_min_list, m_max_list = config.template_m_plane(theta)
+    m_min_list, m_max_list = config.template_m_plane(frame_params.theta)
     m_min, m_max = c_point(m_min_list), c_point(m_max_list)
     rconfig = RenderConfig(rwin, config.iteration_limit, m_min, m_max)
 
@@ -130,24 +137,20 @@ def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, theta: dou
     cdef int min_density = config.min_density
     cdef int max_density = config.max_density
 
-    # Render histogram of mandelbrot set, and linearly scale density down to a controllable max
+    # Render histogram of mandelbrot set, and linearly scale density to within a configurable min/max
     histwin = RenderWindow(plane, rwin.resolution)
     histcfg = RenderConfig(histwin, pow(2, 7), m_min, m_max)
     histdata = render_histogram(histcfg)
-    # histdata = np.full(shape=(config.global_resolution, config.global_resolution), fill_value=min_density, dtype=np.uint8)
     if id == 0 and config.progress_indicator:
         log.info(f"Render interval: {m_min} => {m_max}")
         log.info(f"log2(traces) = {math.log2(np.sum(np.power(histdata, 2))):.2f}")
         log.info(f"density interval: ({min_density}, {max_density})")
         if config.save_histogram_png:
             serialization.save_histogram_png(histdata)
-            # output_filename = f"histogram/histogram{int(datetime.now().timestamp())}.png"
-            # with open(output_filename, "wb") as fp:
-            #     writer = png.Writer(histwin.resolution, histwin.resolution, greyscale=True)
-            #     writer.write(fp, histdata.astype('uint8'))
 
     rdata = np.full(fill_value=0, dtype=np.float32, shape=config.rshape())
     render2(id, rconfig, histcfg, histdata, rdata, workers)
+    # Technically this should probably be in calling code, but this avoids having to manage returning references to temporary data
     with shared_data.get_lock():
         shared = np.frombuffer(shared_data.get_obj(), dtype=np.float32)
         shared.shape = config.rshape()
@@ -174,7 +177,7 @@ def render2(id: int,
     # Also, in most cases setting higher iteration limits hasn't proven terribly interesting so far
     # The exception I thought I found I now suspect to actually be precision limits
     assert rconfig.iteration_limit <= 4096
-    log.debug(f"Theta: {config.theta}")
+    log.debug(f"Theta: {frame_params.theta}")
 
     cdef:
         # const double density_factor = 0.5
@@ -184,8 +187,9 @@ def render2(id: int,
         int sqrt_chunks = histcfg.rwin.resolution
         double zr_points[4096]
         double zi_points[4096]
-        # double cr_points[4096]
-        # double ci_points[4096]
+        double cr_points[4096]
+        double ci_points[4096]
+        float theta = frame_params.theta
 
         # Loop vars
         int i, points, chunk_density, chunk_col, chunk_row
@@ -222,37 +226,38 @@ def render2(id: int,
                 progress_milestone(start_time, ((count / progress_total) * 100))
             chunk_count += 1
         chunk_start = p4_add(rconfig.m_min,
-                             p4_dot(histcfg.m_dt, Point4(chunk_col, 0, 0, chunk_row)))
+                             p4_dot(histcfg.m_dt, make_p4(chunk_col, 0, 0, chunk_row)))
         chunk_dt = p4_scalar_div(histcfg.m_dt, chunk_density)
-        for s0 in range(chunk_density):
-            for s1 in range(chunk_density):
-                p = p4_add(chunk_start, p4_dot(chunk_dt, Point4(s0, 0, 0, s1)))
-                # radius = math.sqrt(p.zr * p.zr + p.zi * p.zi)
-                # radius = math.sqrt(p.cr * p.cr + p.ci * p.ci + p.zr * p.zr + p.zi * p.zi)
-                radius = math.atan(p.zi/p.zr)
-                escapes = False
-                points = 0
-                for i in range(rconfig.iteration_limit):
-                    # p = p4_iterate(p, (i+1)/frame_params.theta)
-                    p = p4_iterate(p, i)
-                    if p.zr * p.zr + p.zi * p.zi > threshold2:
-                        escapes = True
-                        break
-                    points += 1
-                    zr_points[i] = p.zr
-                    zi_points[i] = p.zi
-                    # cr_points[i] = p.cr
-                    # ci_points[i] = p.ci
-                if escapes:
-                    for i in range(points):
-                        x, y = zr_points[i], zi_points[i]
-                        if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
-                            a, b = rwin.x2column(x), rwin.y2row(y)
-                            data[a, b, 0] += 1
-                            data[a, b, 1] += i
-                            data[a, b, 2] += radius
-                        # x, y = cr_points[i], ci_points[i]
-                        # if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
-                        #     a, b = rwin.x2column(x), rwin.y2row(y)
-                        #     data[a, b, 0] += 1
-                        #     data[a, b, 1] += i
+        with cython.nogil:
+            for s0 in range(chunk_density):
+                for s1 in range(chunk_density):
+                    p = p4_add(chunk_start, p4_dot(chunk_dt, make_p4(s0, 0, 0, s1)))
+                    radius = sqrt(p.zr * p.zr + p.zi * p.zi)
+                    # radius = math.atan(p.zi/p.zr)
+                    escapes = False
+                    points = 0
+                    for i in range(rconfig.iteration_limit):
+                        # p = p4_iterate(p, (i+1)/frame_params.theta)
+                        p = p4_iterate(p, i, theta)
+                        if p.zr * p.zr + p.zi * p.zi > threshold2:
+                            escapes = True
+                            break
+                        points += 1
+                        zr_points[i] = p.zr
+                        zi_points[i] = p.zi
+                        # cr_points[i] = p.cr
+                        # ci_points[i] = p.ci
+                    if escapes:
+                        for i in range(points):
+                            x, y = zr_points[i], zi_points[i]
+                            # x, y = cr_points[i], ci_points[i]
+                            if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
+                                a, b = rwin.x2column(x), rwin.y2row(y)
+                                data[a, b, 0] += 1
+                                data[a, b, 1] += i
+                                data[a, b, 2] += radius
+                            # x, y = cr_points[i], ci_points[i]
+                            # if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
+                            #     a, b = rwin.x2column(x), rwin.y2row(y)
+                            #     data[a, b, 0] += 1
+                            #     data[a, b, 1] += i

@@ -4,42 +4,53 @@
 resolution = 1024
 density_range = [32, 32]
 #iteration_limit_power = 5.2
-iteration_limit_power = 8.0
-escape_threshold = 2.0
+iteration_limit_power = 7.0
+escape_threshold = 2.1
 #render_plane = [-1.6, -1.25, 0.9, 1.25]
+#render_plane = [-1.2, -1.25, 1.3, 1.25]
 #render_plane = [-1.5, -1.35, 1.0, 1.15]
-render_plane = [-2.0, -2.0, 2.0, 2.0]
-#render_plane = [-1.5, -1.5, 1.5, 1.5]
+#render_plane = [-2.0, -2.0, 2.0, 2.0]
+render_plane = [-1.5, -1.5, 1.5, 1.5]
+#render_plane = [-1.0, -1.0, 1.0, 1.0]
+
 
 # These values are considered python expressions if strings
 # variables: xmin, xmax, ymin, ymax, theta
 # functions: anything implemented by python's math builtins, e.g. "sin(theta)*pi"
-m_min = [0.0, 0.0, "xmin", "ymin"]
-m_max = [0.0, 0.0, "xmax", "ymax"]
+#m_min = [0.0, 0.0, "xmin", "ymin"]
+#m_max = [0.0, 0.0, "xmax", "ymax"]
 #m_min = [-1.0, -1.0, "xmin", "ymin"]
 #m_max = [1.1, 1.1, "xmax", "ymax"]
 #m_min = ['xmax', 'ymax', "xmin", "ymin"]
 #m_max = ['xmin', 'ymin', "xmax", "ymax"]
 #m_min = ['xmax', 'ymin', "xmax", "ymin"]
 #m_max = ['xmin', 'ymax', "xmin", "ymax"]
+#m_min = ['xmin', 0.37, 0.37, 'ymin']
+#m_max = ['xmax', 0.37, 0.37, 'ymax']
+#m_min = ['xmin', 0.37, 'ymin', -0.37]
+#m_max = ['xmax', 0.37, 'ymax', -0.37]
+#m_min = [0.57, 'xmin', -0.37, 'ymin']
+#m_max = [0.57, 'xmax', -0.37, 'ymax']
+m_min = [0.17, 'xmin', 'ymin', -0.10]
+m_max = [0.17, 'xmax', 'ymax', -0.10]
+
 
 # This is dynamically rebuilt using pyximport on startup
 # Total hackery, but it really needs to be compiled code since it's the inner-most loop function
 # And its a lot faster than rebuilding any of the main modules to boot
+# NOTES:
+# * Try to keep nogil if you can, 10-20% performance improvement and it guarantees the function is pure C, which is a big deal for performance
+iteration_sig = "cdef Point4 p4_iterate(Point4 a, int i, float theta) nogil"
 iteration_func = """
-cdef Point4 p4_iterate(Point4 a, int i):
-    return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-                  a.cr, a.ci)
-
-   # Corrupted iterate - face-like appearance
-   # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-   #               a.cr*a.zi                       , a.ci)
-
-   # Corrupted iterate - really interesting result, especially if you set min density much lower than max density
-   #                     That _shouldn't_ matter, but somehow it radically alters the output
-   #                     NOTE: You should set "skip_hist_boundary_check": true in config
-   # return Point4(a.zr * a.zr - a.zi * a.zi + a.cr, 2 * a.zr * a.zi + a.ci,
-   #               a.cr-a.zi                           , a.ci-a.zr)
+    # This is a nonsense value, but it makes for interesting patterns when used to modify the equation in various ways
+    cdef double rot = (a.zr + a.ci) * (a.zi + a.cr)
+    cdef double iter = <double>i / 128.0
+    cdef Point4 result
+    result.zr = a.zi * a.zi - a.zr * a.zr + a.cr + rot
+    result.zi = 2 * a.zr * a.zi + a.ci
+    result.cr = a.cr  + iter
+    result.ci =  a.ci - iter
+    return result
 """
 
 # == MULTI ==

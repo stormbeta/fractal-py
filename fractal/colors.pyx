@@ -30,6 +30,8 @@ COLOR8U = NDArray[(Any, Any, 3), np.uint8]
 
 # TODO: Find out why I keep seeing such significant differences in average brightness for multi-frame renders
 #       Even when setting static nmax/imax... it's almost as if the actual trace values are changing drastically, which doesn't make sense
+@cython.infer_types(True)
+@cython.cdivision(True)
 cdef sqrt_curve(rdata: np.ndarray[np.float32], scale: List[float]):
     output_f = np.zeros(dtype=np.float32, shape=(config.global_resolution, config.global_resolution))
     for i in range(3):
