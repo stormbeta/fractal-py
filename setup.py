@@ -3,7 +3,7 @@ from Cython.Build import cythonize
 import numpy
 
 setup(
-    ext_modules=cythonize("fractal/render.pyx",
+    ext_modules=cythonize(["fractal/render.pyx", "fractal/cmath.pyx", "fractal/iterator.pyx"],
                           annotate=True,
                           compiler_directives={'language_level': "3",
                                                'infer_types': True,         # IMPORTANT

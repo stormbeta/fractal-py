@@ -36,6 +36,7 @@ cdef Point4 p4_sub(Point4 a, Point4 b) nogil:
                   a.cr - b.cr, a.ci - b.ci)
 
 cdef Point4 p4_square_z(Point4 a) nogil:
+    # return Z = Z² + C, C = C
     return make_p4(a.zr * a.zr - a.zi * a.zi, 2 * a.zr * a.zi, a.cr, a.ci)
 
 cdef Point4 p4_cube_z(Point4 a) nogil:
@@ -60,15 +61,23 @@ cdef class RenderWindow:
         self.dy = ((plane.ymax - plane.ymin) / resolution)
 
     # NOTE: Inlining these doesn't seem to actually help performance
+    @cython.cdivision(True)
+    @cython.overflowcheck(False)
     cdef int x2column(self, double x) nogil:
         return <int>(((x - self.plane.xmin) / self.dx) - 1)
 
+    @cython.cdivision(True)
+    @cython.overflowcheck(False)
     cdef int y2row(self, double y) nogil:
         return <int>(self.resolution - <int>((y - self.plane.ymin) / self.dy) - 1)
 
+    @cython.cdivision(True)
+    @cython.overflowcheck(False)
     cdef double col2x(self, int x) nogil:
         return self.plane.xmin + (<double>x * self.dx)
 
+    @cython.cdivision(True)
+    @cython.overflowcheck(False)
     cdef double row2y(self, int y) nogil:
         return self.plane.ymax - (<double>y * self.dy)
 

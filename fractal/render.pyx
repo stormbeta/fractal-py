@@ -101,9 +101,10 @@ cdef np.ndarray[np.uint8_t, ndim=2] render_histogram(RenderConfig histcfg):
 @cython.overflowcheck(False)
 @cython.infer_types(True)    # NOTE: Huge performance boost
 @cython.cdivision(True)      # NOTE: Huge performance boost
-def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config):
+def nebula(id: int, shared_data: mp.Array, workers: int, cfg: Config, params: FrameConfig):
     # Allow overrides from main.py
     config.inline_copy(cfg)
+    frame_params.inline_copy(params)
     cdef:
         Plane plane = c_plane(config.render_plane)
         np.ndarray[np.uint8_t, ndim=2] histdata
@@ -183,12 +184,13 @@ def render2(id: int,
         # const double density_factor = 0.5
         # Plane plane = rconfig.rwin.plane
         Plane plane = c_plane(config.view_plane)
+        RenderWindow vwin = RenderWindow(plane, config.global_resolution)
         RenderWindow rwin = rconfig.rwin
         int sqrt_chunks = histcfg.rwin.resolution
         double zr_points[4096]
         double zi_points[4096]
-        double cr_points[4096]
-        double ci_points[4096]
+        # double cr_points[4096]
+        # double ci_points[4096]
         float theta = frame_params.theta
 
         # Loop vars
@@ -222,7 +224,7 @@ def render2(id: int,
         if id == 0 and config.progress_indicator:
             count += chunk_density
             if chunk % 2048 == 0:
-                # Only update progress every 128 traces (average)
+                # No point in updating progress too frequently, it would only bottleneck the output
                 progress_milestone(start_time, ((count / progress_total) * 100))
             chunk_count += 1
         chunk_start = p4_add(rconfig.m_min,
@@ -252,7 +254,7 @@ def render2(id: int,
                             x, y = zr_points[i], zi_points[i]
                             # x, y = cr_points[i], ci_points[i]
                             if plane.xmin < x < plane.xmax and plane.ymin < y < plane.ymax:
-                                a, b = rwin.x2column(x), rwin.y2row(y)
+                                a, b = vwin.x2column(x), vwin.y2row(y)
                                 data[a, b, 0] += 1
                                 data[a, b, 1] += i
                                 data[a, b, 2] += radius

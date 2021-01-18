@@ -1,11 +1,12 @@
-import time
-import qtoml
-from typing import *
-from dataclasses import dataclass, fields
-import multiprocessing as mp
-import math
 import logging
-import cython
+import math
+import multiprocessing as mp
+import time
+from dataclasses import dataclass, fields
+from functools import wraps
+from typing import *
+
+import qtoml
 
 
 class ConfigBase:
@@ -22,11 +23,14 @@ class FrameConfig(ConfigBase):
     folder: str
 
 
+# TODO: Ideally this should be serializable back to config, but that'd be an annoying amount of work at this point
+# TODO: Should probably create categories within the config file but don't really want to break compatibility
 @dataclass
 class Config(ConfigBase):
     progress_indicator: bool
     save_render_data: bool
     save_histogram_png: bool
+    enable_gui: bool
 
     global_resolution: int
     iteration_limit: int
@@ -38,6 +42,7 @@ class Config(ConfigBase):
     start: float
     stop: float
     frames: int
+    framestep: str
 
     log_level: str
 
@@ -53,6 +58,10 @@ class Config(ConfigBase):
     iteration_sig: str
     iteration_func: str
 
+    color_scale_max: int
+    color_scale: List[List[float]]
+    color_algo: List[str]
+
     def reload(self, config_file: Union[str, bytes]):
         self.inline_copy(Config.load(config_file))
 
@@ -61,18 +70,19 @@ class Config(ConfigBase):
         cfg = cls(**{(k.name): None for k in fields(cls)})
         data: dict
         if isinstance(config_file, str):
-            with open('config.toml', 'r') as fp:
+            with open(config_file, 'r') as fp:
                 data = qtoml.load(fp)
         else:
             data = qtoml.loads(config_file.decode('utf-8'))
         cfg.iteration_func = data.get('iteration_func')
         cfg.iteration_sig = data.get('iteration_sig')
+        cfg.global_resolution = data['resolution']
         cfg.theta = 0.0  # NOTE: Special var, should only be in-memory
         cfg.log_level = data.get('log_level', 'INFO')
         cfg._flags(data)
         cfg._multi(data)
+        cfg._color(data)
         cfg.iteration_limit = pow(2, data['iteration_limit_power'])
-        cfg.global_resolution = data['resolution']
         cfg.escape_threshold = data.get('escape_threshold', 2.0)
         density_range = data.get('density_range', [16, 16])
         cfg.min_density = density_range[0]
@@ -94,6 +104,13 @@ class Config(ConfigBase):
         self.start = data.get('start', 0.0)
         self.stop = data.get('stop', 0.0)
         self.frames = data.get('frames', -1)
+        self.framestep = data.get('framestep', 'linear')
+
+    def _color(self, data: dict) -> None:
+        self.color_scale = data.get('color_scale')
+        self.color_algo = data.get('color_algo', ['sqrt_curve', 'sqrt_curve', 'sqrt_curve'])
+        # self.color_scale_max = math.sqrt(self.global_resolution) * 4
+        self.color_scale_max = 256
 
     def _flags(self, data: dict) -> None:
         self.skip_hist_boundary_check = data.get('skip_hist_boundary_check', False)
@@ -101,6 +118,7 @@ class Config(ConfigBase):
         self.progress_indicator = data.get('progress_indicator', True)
         self.save_render_data = data.get('save_render_data', True)
         self.save_histogram_png = data.get('save_histogram_png', False)
+        self.enable_gui = data.get('enable_gui', False)
 
     def rshape(self) -> Tuple[int, int, int]:
         return (self.global_resolution, self.global_resolution, 3)
@@ -122,8 +140,8 @@ class Config(ConfigBase):
 
 
 config = Config.load()
-frame_params = FrameConfig(-1, 0.0, "renders")
-logging.basicConfig(level=config.log_level, format="%(message)s")
+frame_params = FrameConfig(-1, config.start, "renders")
+logging.basicConfig(level=config.log_level, format="[%(name)s]: %(message)s")
 log = logging.getLogger(mp.current_process().name)
 log.addHandler(logging.FileHandler('render.log', 'a'))
 
@@ -143,3 +161,11 @@ def progress_milestone(start_time: float, percent: float) -> None:
     print(f"\rProgress: {percent:.2f}% (ETA: {eta} ¯\\_(ツ)_/¯)", end='')
 
 
+def debug_timer(func: Callable) -> Callable:
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        start_time = time.time()
+        ret_value = func(*args, **kwargs)
+        log.info(f"{func.__name__}: {seconds_convert(time.time() - start_time)}")
+        return ret_value
+    return wrapped
